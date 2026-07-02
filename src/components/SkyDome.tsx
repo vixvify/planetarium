@@ -31,6 +31,8 @@ uniform vec3 uHorizonColor;
 uniform vec3 uSunDirection;
 uniform vec3 uSunGlowColor;
 uniform float uBrightness;
+uniform vec3 uCoveColor;
+uniform float uCoveIntensity;
 
 varying vec3 vWorldPosition;
 varying vec2 vUv;
@@ -50,6 +52,10 @@ void main() {
 
   float horizonFade = 1.0 - smoothstep(0.0, 0.12, h);
   sky += uHorizonColor * horizonFade * 0.2 * uBrightness;
+
+  // Cove Light Effect (adjusted to reach higher up the dome)
+  float coveFade = exp(-h * 4.0); 
+  sky += uCoveColor * coveFade * uCoveIntensity;
 
   float gridU = fract(vUv.x * 120.0);
   float gridV = fract(vUv.y * 60.0);
@@ -110,12 +116,75 @@ void main() {
 }
 `;
 
+const FISHEYE_VERTEX_SHADER = `
+varying vec3 vWorldDirection;
+void main() {
+  vec4 worldPos = modelMatrix * vec4(position, 1.0);
+  vWorldDirection = normalize(worldPos.xyz);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const LOBBY_FRAGMENT_SHADER = `
+uniform vec3 uCoveColor;
+uniform float uCoveIntensity;
+varying vec3 vWorldPosition;
+
+void main() {
+  vec3 dir = normalize(vWorldPosition);
+  float h = max(dir.y, 0.0);
+  
+  // A dark subtle base for the lobby dome
+  vec3 color = vec3(0.005, 0.005, 0.01);
+  
+  // Cove Light Effect
+  float coveFade = exp(-h * 4.0);
+  color += uCoveColor * coveFade * uCoveIntensity;
+  
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
+const FISHEYE_FRAGMENT_SHADER = `
+uniform sampler2D tVideo;
+uniform vec3 uCoveColor;
+uniform float uCoveIntensity;
+varying vec3 vWorldDirection;
+
+#define PI 3.14159265359
+
+void main() {
+  vec3 dir = normalize(vWorldDirection);
+  
+  float altitude = asin(max(0.0, dir.y));
+  float r = (1.0 - (altitude / (PI / 2.0))) * 0.5;
+  
+  float azimuth = atan(dir.z, dir.x);
+  
+  float u = 0.5 + r * cos(azimuth);
+  float v = 0.5 - r * sin(azimuth);
+  
+  vec3 finalColor = texture2D(tVideo, vec2(u, v)).rgb;
+  
+  // Cove Light Effect (adjusted for higher spread)
+  float coveFade = exp(-altitude * 4.0);
+  finalColor += uCoveColor * coveFade * uCoveIntensity;
+  
+  gl_FragColor = vec4(finalColor, 1.0);
+}
+`;
+
 interface SkyDomeProps {
   simulationDate: Date;
   latitude: number;
   longitude: number;
   showConstellations: boolean;
   showLabels: boolean;
+  appMode: "lobby" | "sky" | "movie";
+  videoElement?: HTMLVideoElement | null;
+  videoFormat?: "fisheye" | "equirectangular";
+  coveLight?: boolean;
+  coveColor?: string;
 }
 
 const DOME_RADIUS = 80;
@@ -123,7 +192,7 @@ const DOME_HEIGHT = 95;
 const WALL_HEIGHT = 25;
 const ROOM_RADIUS = DOME_RADIUS;
 const FLOOR_Y = -WALL_HEIGHT;
-const SEAT_ROWS = 6;
+const SEAT_ROWS = 8;
 const PROJECTOR_HEIGHT = 12;
 
 export default function SkyDome({
@@ -132,13 +201,21 @@ export default function SkyDome({
   longitude,
   showConstellations,
   showLabels,
+  appMode,
+  videoElement,
+  videoFormat = "fisheye",
+  coveLight = true,
+  coveColor = "#aa00ff",
 }: SkyDomeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
+    dome: THREE.Mesh;
+    stars: THREE.Points;
     domeMaterial: THREE.ShaderMaterial;
+    lobbyMaterial: THREE.ShaderMaterial;
     starPositions: Float32Array;
     starGeometry: THREE.BufferGeometry;
     starMaterial: THREE.ShaderMaterial;
@@ -151,6 +228,20 @@ export default function SkyDome({
     hemi: THREE.HemisphereLight;
     animationId: number;
     clock: THREE.Clock;
+
+    targetCoveIntensity: number;
+    currentCoveIntensity: number;
+    fadeSphere: THREE.Mesh;
+    transitionState: "idle" | "fading_out" | "fading_in";
+    pendingMaterial: THREE.Material;
+    pendingMode: "lobby" | "sky" | "movie";
+    activeMode: "lobby" | "sky" | "movie";
+
+    videoCanvas: HTMLCanvasElement;
+    videoCtx: CanvasRenderingContext2D;
+    targetVideoColor: THREE.Color;
+    currentVideoColor: THREE.Color;
+    frameCount: number;
 
     camYaw: number;
     camPitch: number;
@@ -166,13 +257,14 @@ export default function SkyDome({
   const latRef = useRef(latitude);
   const lonRef = useRef(longitude);
   const showConstellationsRef = useRef(showConstellations);
-  const showLabelsRef = useRef(showLabels);
+  const prevModeRef = useRef(appMode);
+  const videoElementRef = useRef(videoElement);
 
   simulationDateRef.current = simulationDate;
   latRef.current = latitude;
   lonRef.current = longitude;
   showConstellationsRef.current = showConstellations;
-  showLabelsRef.current = showLabels;
+  videoElementRef.current = videoElement;
 
   const createGlowTexture = useCallback((color: string, size: number = 128) => {
     const canvas = document.createElement("canvas");
@@ -226,39 +318,38 @@ export default function SkyDome({
   );
 
   const buildInterior = useCallback((scene: THREE.Scene) => {
-
     const wallMaterial = new THREE.MeshStandardMaterial({
-      color: 0x22222a, 
+      color: 0x22222a,
       roughness: 0.9,
       metalness: 0.1,
     });
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0x22222a, 
+      color: 0x22222a,
       roughness: 0.8,
       metalness: 0.1,
     });
     const seatMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2a2a35, 
+      color: 0xddaa88,
       roughness: 0.8,
       metalness: 0.2,
     });
     const seatCushionMaterial = new THREE.MeshStandardMaterial({
-      color: 0xcb366f, 
+      color: 0xffaa66,
       roughness: 0.6,
       metalness: 0.1,
     });
     const metalMaterial = new THREE.MeshStandardMaterial({
-      color: 0x333344, 
+      color: 0x333344,
       roughness: 0.4,
       metalness: 0.6,
     });
     const fenceMetalMaterial = new THREE.MeshStandardMaterial({
-      color: 0xaaaaaa, 
+      color: 0xaaaaaa,
       roughness: 0.1,
       metalness: 0.9,
     });
     const projectorMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1a25, 
+      color: 0x1a1a25,
       roughness: 0.2,
       metalness: 0.8,
     });
@@ -307,9 +398,9 @@ export default function SkyDome({
     }
 
     for (let row = 0; row < SEAT_ROWS; row++) {
-      const rowRadius = 25 + row * 12;
-      const seatCount = Math.floor(14 + row * 8);
-      const rowY = FLOOR_Y + 0.5 + row * 1.8; 
+      const rowRadius = 20 + row * 7;
+      const seatCount = Math.floor(16 + row * 10);
+      const rowY = FLOOR_Y + 0.5; // All seats at the same level
       const angleStep = (Math.PI * 2) / seatCount;
 
       for (let s = 0; s < seatCount; s++) {
@@ -330,7 +421,7 @@ export default function SkyDome({
         const backGeo = new THREE.BoxGeometry(2.6, 3.5, 0.5);
         const back = new THREE.Mesh(backGeo, seatCushionMaterial);
         back.position.set(0, 2.5, -1.2);
-        back.rotation.x = -0.25; 
+        back.rotation.x = -0.25;
         seatGroup.add(back);
 
         const cushionGeo = new THREE.BoxGeometry(2.6, 0.6, 2.4);
@@ -400,7 +491,7 @@ export default function SkyDome({
       projectorGroup.add(arm);
     }
 
-    const sphereGeo = new THREE.IcosahedronGeometry(3.5, 3); 
+    const sphereGeo = new THREE.IcosahedronGeometry(3.5, 3);
     const sphere = new THREE.Mesh(sphereGeo, projectorMat);
     sphere.position.y = 10.5;
 
@@ -411,7 +502,7 @@ export default function SkyDome({
         vy = posAttr.getY(v),
         vz = posAttr.getZ(v);
       const portGeo = new THREE.CylinderGeometry(0.3, 0.4, 0.5, 8);
-      const port = new THREE.Mesh(portGeo, fenceMetalMaterial); 
+      const port = new THREE.Mesh(portGeo, fenceMetalMaterial);
       port.position.set(vx, vy, vz);
       port.lookAt(vx * 2, vy * 2, vz * 2);
       port.rotateX(Math.PI / 2);
@@ -428,7 +519,7 @@ export default function SkyDome({
 
     for (let i = 0; i < 8; i++) {
       const angle = (i / 8) * Math.PI * 2;
-      const light = new THREE.PointLight(0x2a3a5a, 1.0, 50);
+      const light = new THREE.PointLight(0x2a3a5a, 1.0, 150);
       light.position.set(
         Math.cos(angle) * (ROOM_RADIUS - 3),
         FLOOR_Y + 5,
@@ -479,15 +570,15 @@ export default function SkyDome({
       500,
     );
 
-    const seatAngle = Math.PI * 0.75;
+    const seatAngle = Math.PI * 1.25; // Sit between W and S (South-West quadrant)
     const seatRadius = 55;
     const camX = Math.cos(seatAngle) * seatRadius;
     const camY = FLOOR_Y + 8;
     const camZ = Math.sin(seatAngle) * seatRadius;
     camera.position.set(camX, camY, camZ);
 
-    const initYaw = Math.atan2(-camZ, -camX); 
-    const initPitch = 0.6; 
+    const initYaw = Math.atan2(-camZ, -camX);
+    const initPitch = 0.6;
     let camYaw = initYaw;
     let camPitch = initPitch;
     let targetYaw = initYaw;
@@ -507,7 +598,6 @@ export default function SkyDome({
     updateCameraLook();
 
     const onMouseDown = (e: MouseEvent) => {
-
       if ((e.target as HTMLElement) !== renderer.domElement) return;
       isDragging = true;
       lastMouseX = e.clientX;
@@ -522,7 +612,7 @@ export default function SkyDome({
 
       const sensitivity = 0.003;
       targetYaw += dx * sensitivity;
-      targetPitch -= dy * sensitivity; 
+      targetPitch -= dy * sensitivity;
 
       targetPitch = Math.max(-0.15, Math.min(Math.PI * 0.48, targetPitch));
     };
@@ -577,25 +667,39 @@ export default function SkyDome({
       128,
       64,
       0,
-      Math.PI * 2, 
+      Math.PI * 2,
       0,
-      Math.PI / 2, 
+      Math.PI / 2,
     );
     const domeMaterial = new THREE.ShaderMaterial({
       vertexShader: DOME_VERTEX_SHADER,
       fragmentShader: DOME_FRAGMENT_SHADER,
       uniforms: {
-        uZenithColor: { value: new THREE.Vector3(0, 0, 0.02) },
-        uHorizonColor: { value: new THREE.Vector3(0.01, 0.01, 0.03) },
-        uSunDirection: { value: new THREE.Vector3(0, 1, 0) },
-        uSunGlowColor: { value: new THREE.Vector3(0, 0, 0) },
+        uZenithColor: { value: new THREE.Color() },
+        uHorizonColor: { value: new THREE.Color() },
+        uSunDirection: { value: new THREE.Vector3() },
+        uSunGlowColor: { value: new THREE.Color() },
         uBrightness: { value: 0 },
+        uCoveColor: { value: new THREE.Color(coveColor) },
+        uCoveIntensity: { value: coveLight ? 1.5 : 0.0 },
       },
       side: THREE.BackSide,
       depthWrite: true,
     });
+
+    const lobbyMaterial = new THREE.ShaderMaterial({
+      vertexShader: DOME_VERTEX_SHADER,
+      fragmentShader: LOBBY_FRAGMENT_SHADER,
+      uniforms: {
+        uCoveColor: { value: new THREE.Color(coveColor) },
+        uCoveIntensity: { value: coveLight ? 1.5 : 0.0 },
+      },
+      side: THREE.BackSide,
+      depthWrite: true,
+    });
+
     const dome = new THREE.Mesh(domeGeo, domeMaterial);
-    dome.position.y = 0; 
+    dome.position.y = 0;
     scene.add(dome);
 
     const { roomLights, ambient, hemi } = buildInterior(scene);
@@ -727,11 +831,34 @@ export default function SkyDome({
 
     const clock = new THREE.Clock();
 
+    const fadeGeo = new THREE.SphereGeometry(DOME_RADIUS - 0.5, 64, 32);
+    const fadeMat = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 0.0,
+      depthWrite: false,
+    });
+    const fadeSphere = new THREE.Mesh(fadeGeo, fadeMat);
+    fadeSphere.position.y = 0;
+    fadeSphere.renderOrder = 999; // Ensure it covers everything
+    scene.add(fadeSphere);
+
+    const videoCanvas = document.createElement("canvas");
+    videoCanvas.width = 16;
+    videoCanvas.height = 16;
+    const videoCtx = videoCanvas.getContext("2d", {
+      willReadFrequently: true,
+    })!;
+
     sceneRef.current = {
       renderer,
       scene,
       camera,
-      domeMaterial: domeMaterial,
+      dome,
+      stars,
+      domeMaterial,
+      lobbyMaterial,
       starPositions,
       starGeometry,
       starMaterial,
@@ -744,6 +871,18 @@ export default function SkyDome({
       hemi,
       animationId: 0,
       clock,
+      targetCoveIntensity: coveLight ? 1.5 : 0.0,
+      currentCoveIntensity: coveLight ? 1.5 : 0.0,
+      fadeSphere,
+      transitionState: "idle",
+      pendingMaterial: domeMaterial,
+      pendingMode: appMode,
+      activeMode: appMode,
+      videoCanvas,
+      videoCtx,
+      targetVideoColor: new THREE.Color(0x334455),
+      currentVideoColor: new THREE.Color(0x334455),
+      frameCount: 0,
       camYaw,
       camPitch,
       targetYaw,
@@ -794,7 +933,45 @@ export default function SkyDome({
 
       const jd = dateToJD(date);
       const localST = lst(jd, lon);
-      const elapsed = s.clock.getElapsedTime();
+      const dt = Math.min(0.1, s.clock.getDelta());
+      const elapsed = s.clock.elapsedTime;
+
+      // Cove Intensity Smooth Fade
+      if (Math.abs(s.currentCoveIntensity - s.targetCoveIntensity) > 0.005) {
+        s.currentCoveIntensity +=
+          (s.targetCoveIntensity - s.currentCoveIntensity) * 5.0 * dt;
+      } else {
+        s.currentCoveIntensity = s.targetCoveIntensity;
+      }
+      const currentMat = s.dome.material as any;
+      if (currentMat.uniforms && currentMat.uniforms.uCoveIntensity) {
+        currentMat.uniforms.uCoveIntensity.value = s.currentCoveIntensity;
+      }
+
+      // Mode Transition Fading
+      if (s.transitionState === "fading_out") {
+        const mat = s.fadeSphere.material as THREE.Material;
+        mat.opacity += 2.0 * dt; // 0.5s fade to black
+        if (mat.opacity >= 1.0) {
+          mat.opacity = 1.0;
+          s.transitionState = "fading_in";
+
+          s.dome.material = s.pendingMaterial;
+          s.activeMode = s.pendingMode;
+          const isSkyMode = s.pendingMode === "sky";
+          s.stars.visible = isSkyMode;
+          s.sunSprite.visible = isSkyMode;
+          s.moonSprite.visible = isSkyMode;
+          s.constellationLine.visible = showConst && isSkyMode;
+        }
+      } else if (s.transitionState === "fading_in") {
+        const mat = s.fadeSphere.material as THREE.Material;
+        mat.opacity -= 2.0 * dt; // 0.5s fade from black
+        if (mat.opacity <= 0.0) {
+          mat.opacity = 0.0;
+          s.transitionState = "idle";
+        }
+      }
 
       for (let i = 0; i < STARS.length; i++) {
         const star = STARS[i];
@@ -806,7 +983,6 @@ export default function SkyDome({
           s.starPositions[i * 3 + 1] = y;
           s.starPositions[i * 3 + 2] = z;
         } else {
-
           s.starPositions[i * 3] = 0;
           s.starPositions[i * 3 + 1] = -999;
           s.starPositions[i * 3 + 2] = 0;
@@ -814,8 +990,12 @@ export default function SkyDome({
       }
       s.starGeometry.attributes.position.needsUpdate = true;
 
-      s.constellationLine.visible = showConst;
-      if (showConst) {
+      const currentMode = s.pendingMode;
+      const isSkyMode = currentMode === "sky";
+
+      // Removed instant visibility toggles, they are now handled by the transition swap
+
+      if (showConst && isSkyMode) {
         let vi = 0;
         for (const c of CONSTELLATIONS) {
           for (const [s1Name, s2Name] of c.lines) {
@@ -859,7 +1039,6 @@ export default function SkyDome({
               s.constellationPositions[vi * 3 + 2] = z2;
               vi++;
             } else {
-
               s.constellationPositions[vi * 3] = 0;
               s.constellationPositions[vi * 3 + 1] = -999;
               s.constellationPositions[vi * 3 + 2] = 0;
@@ -886,7 +1065,7 @@ export default function SkyDome({
           DOME_RADIUS - 4,
         );
         s.sunSprite.position.set(sx, Math.max(sy, 2), sz);
-        s.sunSprite.visible = true;
+        s.sunSprite.visible = isSkyMode;
         const sunAlpha = Math.max(0, Math.min(1, (sunAltAz.altitude + 5) / 10));
         (s.sunSprite.material as THREE.SpriteMaterial).opacity = sunAlpha;
       } else {
@@ -905,7 +1084,7 @@ export default function SkyDome({
           DOME_RADIUS - 4,
         );
         s.moonSprite.position.set(mx, Math.max(my, 2), mz);
-        s.moonSprite.visible = true;
+        s.moonSprite.visible = isSkyMode;
         const moonBright =
           0.3 + 0.7 * Math.abs(Math.cos(moon.phase * Math.PI * 2 - Math.PI));
         (s.moonSprite.material as THREE.SpriteMaterial).opacity =
@@ -937,25 +1116,123 @@ export default function SkyDome({
       (s.constellationLine.material as THREE.LineBasicMaterial).opacity =
         0.15 * (1 - skyCol.brightness * 0.9);
 
-      const dayMultiplier = 1.0 + skyCol.brightness * 5.0;
+      let targetAmbientInt = 0;
+      let targetHemiInt = 0;
+      const targetLightColors: THREE.Color[] = [];
+      const targetLightInts: number[] = [];
 
-      s.ambient.intensity = 0.5 + skyCol.brightness * 2.5;
-      s.hemi.intensity = 0.2 + skyCol.brightness * 2.3;
+      // Use activeMode and tie intensity to the dome's fade for synchronized dimming
+      const targetMode = s.activeMode;
+      const isTargetSkyMode = targetMode === 'sky';
+      const fadeOpacity = (s.fadeSphere.material as THREE.Material).opacity;
+      const dimFactor = Math.max(0, 1.0 - fadeOpacity); // 0 when fully black, 1 when fully visible
+
+      if (isTargetSkyMode) {
+        targetAmbientInt = 0.5 + skyCol.brightness * 2.5;
+        targetHemiInt = 0.2 + skyCol.brightness * 2.3;
+
+        for (let li = 0; li < s.roomLights.length; li++) {
+          let c = new THREE.Color();
+          let intensity = 0;
+          if (li >= s.roomLights.length - 2) {
+            intensity = 0.8 + skyCol.brightness * 6.0;
+            if (skyCol.brightness > 0.3) {
+              c.setHex(0x8899cc);
+            } else {
+              c.setHex(0x3a4a6a);
+            }
+          } else {
+            intensity = 1.5 + skyCol.brightness * 1.5;
+            c.setHex(0x2a3a5a);
+          }
+          targetLightColors.push(c);
+          targetLightInts.push(intensity);
+        }
+      } else {
+        const coveIntensity = s.currentCoveIntensity;
+        const coveColorObj = s.domeMaterial.uniforms.uCoveColor.value as THREE.Color;
+        const isMovie = targetMode === "movie";
+
+        // --- Video Ambilight Extraction ---
+        if (
+          isMovie &&
+          videoElementRef.current &&
+          videoElementRef.current.readyState >= 2
+        ) {
+          if (s.frameCount % 4 === 0) {
+            try {
+              s.videoCtx.drawImage(videoElementRef.current, 0, 0, 16, 16);
+              const imgData = s.videoCtx.getImageData(0, 0, 16, 16).data;
+              let r = 0, g = 0, b = 0;
+              for (let i = 0; i < imgData.length; i += 4) {
+                r += imgData[i];
+                g += imgData[i + 1];
+                b += imgData[i + 2];
+              }
+              const count = 16 * 16 * 255;
+              s.targetVideoColor.setRGB(r / count, g / count, b / count);
+            } catch (err) {
+              s.targetVideoColor.setHex(0x334455);
+            }
+          }
+        } else {
+          s.targetVideoColor.setHex(0x334455);
+        }
+        s.currentVideoColor.lerp(s.targetVideoColor, dt * 5.0);
+        s.frameCount++;
+
+        const vBright =
+          0.299 * s.currentVideoColor.r +
+          0.587 * s.currentVideoColor.g +
+          0.114 * s.currentVideoColor.b;
+
+        targetAmbientInt = (isMovie ? 0.1 + vBright * 0.6 : 0.0) + coveIntensity * 0.4;
+        targetHemiInt = (isMovie ? 0.05 + vBright * 0.4 : 0.0) + coveIntensity * 0.3;
+
+        for (let li = 0; li < s.roomLights.length; li++) {
+          const baseColor = isMovie
+            ? s.currentVideoColor
+            : new THREE.Color(0x1a2038);
+          let c = new THREE.Color();
+          if (coveIntensity > 0.05) {
+            c.copy(baseColor).lerp(coveColorObj, Math.min(1.0, coveIntensity * 0.6));
+          } else {
+            c.copy(baseColor);
+          }
+
+          const baseIntensity = isMovie ? 0.1 + vBright * 6.0 : 0.0;
+          let intensity = 0;
+          if (li >= s.roomLights.length - 2) {
+            intensity = baseIntensity + coveIntensity * 2.0;
+          } else {
+            intensity = baseIntensity * 0.5 + coveIntensity * 1.5;
+          }
+          targetLightColors.push(c);
+          targetLightInts.push(intensity);
+        }
+      }
+
+      // Smoothly interpolate the base targets, then apply the strict dimFactor
+      const lerpSpeed = dt * 3.0; // 3 units per second smooth transition
+      
+      if (s.ambient.userData.base === undefined) s.ambient.userData.base = s.ambient.intensity;
+      s.ambient.userData.base += (targetAmbientInt - s.ambient.userData.base) * lerpSpeed;
+      if (Math.abs(s.ambient.userData.base - targetAmbientInt) < 0.001) s.ambient.userData.base = targetAmbientInt;
+      s.ambient.intensity = s.ambient.userData.base * dimFactor;
+
+      if (s.hemi.userData.base === undefined) s.hemi.userData.base = s.hemi.intensity;
+      s.hemi.userData.base += (targetHemiInt - s.hemi.userData.base) * lerpSpeed;
+      if (Math.abs(s.hemi.userData.base - targetHemiInt) < 0.001) s.hemi.userData.base = targetHemiInt;
+      s.hemi.intensity = s.hemi.userData.base * dimFactor;
 
       for (let li = 0; li < s.roomLights.length; li++) {
         const light = s.roomLights[li];
-        if (li >= s.roomLights.length - 5) {
-
-          light.intensity = 0.8 + skyCol.brightness * 6.0;
-          if (skyCol.brightness > 0.3) {
-            light.color.setHex(0x8899cc);
-          } else {
-            light.color.setHex(0x3a4a6a);
-          }
-        } else {
-
-          light.intensity = 1.5 + skyCol.brightness * 1.5;
-        }
+        light.color.lerp(targetLightColors[li], lerpSpeed);
+        
+        if (light.userData.base === undefined) light.userData.base = light.intensity;
+        light.userData.base += (targetLightInts[li] - light.userData.base) * lerpSpeed;
+        if (Math.abs(light.userData.base - targetLightInts[li]) < 0.001) light.userData.base = targetLightInts[li];
+        light.intensity = light.userData.base * dimFactor;
       }
 
       const dampFactor = 0.08;
@@ -995,6 +1272,7 @@ export default function SkyDome({
       }
       renderer.dispose();
       domeMaterial.dispose();
+      lobbyMaterial.dispose();
       starGeometry.dispose();
       starMaterial.dispose();
       constellationGeo.dispose();
@@ -1003,8 +1281,116 @@ export default function SkyDome({
         container.removeChild(renderer.domElement);
       }
     };
-
   }, []);
 
-  return <div ref={containerRef} className="planetarium-canvas" />;
+  // ── Mode & Video Material Hook ──────────────────────────────
+  useEffect(() => {
+    const s = sceneRef.current;
+    if (!s) return;
+
+    let activeMaterial: THREE.Material;
+    let videoTexture: THREE.VideoTexture | null = null;
+    let videoMaterial: THREE.Material | null = null;
+
+    if (appMode === "lobby") {
+      activeMaterial = s.lobbyMaterial;
+    } else if (appMode === "movie") {
+      if (videoElement) {
+        videoTexture = new THREE.VideoTexture(videoElement);
+        videoTexture.minFilter = THREE.LinearFilter;
+        videoTexture.magFilter = THREE.LinearFilter;
+
+        if (videoFormat === "equirectangular") {
+          videoTexture.repeat.set(1, 0.5);
+          videoTexture.offset.set(0, 0.5);
+          videoMaterial = new THREE.MeshBasicMaterial({
+            map: videoTexture,
+            side: THREE.BackSide,
+          });
+        } else {
+          videoTexture.repeat.set(1, 1);
+          videoTexture.offset.set(0, 0);
+          videoMaterial = new THREE.ShaderMaterial({
+            vertexShader: FISHEYE_VERTEX_SHADER,
+            fragmentShader: FISHEYE_FRAGMENT_SHADER,
+            uniforms: {
+              tVideo: { value: videoTexture },
+              uCoveColor: { value: new THREE.Color(coveColor) },
+              uCoveIntensity: { value: coveLight ? 1.5 : 0.0 },
+            },
+            side: THREE.BackSide,
+          });
+        }
+        activeMaterial = videoMaterial;
+      } else {
+        // Dark default for movie mode when no video is loaded
+        activeMaterial = s.lobbyMaterial;
+      }
+    } else {
+      // Default to sky material for 'sky' mode
+      activeMaterial = s.domeMaterial;
+    }
+
+    const prevMode = prevModeRef.current;
+    s.pendingMaterial = activeMaterial;
+    s.pendingMode = appMode;
+    prevModeRef.current = appMode;
+
+    // Trigger transition if switching to a new material or mode
+    if (
+      s.dome.material !== activeMaterial ||
+      prevMode !== appMode ||
+      s.transitionState !== "idle"
+    ) {
+      s.transitionState = "fading_out";
+    } else {
+      // If same material and mode, ensure visibilities are updated instantly
+      const isSkyMode = appMode === "sky";
+      s.stars.visible = isSkyMode;
+      s.sunSprite.visible = isSkyMode;
+      s.moonSprite.visible = isSkyMode;
+      s.constellationLine.visible = showConstellationsRef.current && isSkyMode;
+    }
+
+    return () => {
+      if (videoTexture) videoTexture.dispose();
+      if (videoMaterial) videoMaterial.dispose();
+    };
+  }, [appMode, videoElement, videoFormat]);
+
+  useEffect(() => {
+    const s = sceneRef.current;
+    if (!s) return;
+
+    const color = new THREE.Color(coveColor);
+    // Cove intensity is forced off in 'sky' mode
+    const intensity = coveLight && appMode !== "sky" ? 1.5 : 0.0;
+
+    s.targetCoveIntensity = intensity;
+
+    // Instantly update color on all materials to avoid complex color lerping across materials
+    if (s.domeMaterial.uniforms.uCoveColor) {
+      s.domeMaterial.uniforms.uCoveColor.value.copy(color);
+    }
+    if (s.lobbyMaterial.uniforms.uCoveColor) {
+      s.lobbyMaterial.uniforms.uCoveColor.value.copy(color);
+    }
+    const currentMat = s.dome.material as any;
+    if (
+      currentMat !== s.domeMaterial &&
+      currentMat !== s.lobbyMaterial &&
+      currentMat.uniforms &&
+      currentMat.uniforms.uCoveColor
+    ) {
+      currentMat.uniforms.uCoveColor.value.copy(color);
+    }
+  }, [coveLight, coveColor, appMode]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="planetarium-canvas"
+      style={{ width: "100%", height: "100%" }}
+    />
+  );
 }

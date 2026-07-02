@@ -20,8 +20,9 @@ export default function PlanetariumApp() {
   const [latitude] = useState<number>(DEFAULT_LAT);
   const [longitude] = useState<number>(DEFAULT_LON);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
-  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const [mediaSrc, setMediaSrc] = useState<string | null>(null);
+  const [mediaEl, setMediaEl] = useState<HTMLVideoElement | HTMLImageElement | null>(null);
+  const [isVideo, setIsVideo] = useState<boolean>(false);
   const [videoFormat, setVideoFormat] = useState<"fisheye" | "equirectangular">(
     "fisheye",
   );
@@ -68,24 +69,29 @@ export default function PlanetariumApp() {
     setIsPlaying((p) => !p);
   }, []);
 
-  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
       const url = URL.createObjectURL(file);
-      setVideoSrc(url);
+      setMediaSrc(url);
+      if (file.type.startsWith('video/')) {
+        setIsVideo(true);
+      } else {
+        setIsVideo(false);
+      }
     }
   };
 
-  const handleRemoveVideo = () => {
-    if (videoSrc) {
-      URL.revokeObjectURL(videoSrc);
+  const handleRemoveMedia = () => {
+    if (mediaSrc) {
+      URL.revokeObjectURL(mediaSrc);
     }
-    setVideoSrc(null);
-    setVideoEl(null);
+    setMediaSrc(null);
+    setMediaEl(null);
   };
 
-  const onVideoRef = useCallback((node: HTMLVideoElement | null) => {
-    setVideoEl(node);
+  const onMediaRef = useCallback((node: HTMLVideoElement | HTMLImageElement | null) => {
+    setMediaEl(node);
   }, []);
 
   const handleDateChange = useCallback((date: Date) => {
@@ -107,14 +113,22 @@ export default function PlanetariumApp() {
 
   return (
     <div className="planetarium-container" id="planetarium-app">
-      {videoSrc && (
+      {mediaSrc && isVideo && (
         <video
-          ref={onVideoRef}
-          src={videoSrc}
+          ref={onMediaRef as any}
+          src={mediaSrc}
           crossOrigin="anonymous"
           loop
           autoPlay
           playsInline
+          style={{ display: "none" }}
+        />
+      )}
+      {mediaSrc && !isVideo && (
+        <img
+          ref={onMediaRef as any}
+          src={mediaSrc}
+          crossOrigin="anonymous"
           style={{ display: "none" }}
         />
       )}
@@ -126,7 +140,7 @@ export default function PlanetariumApp() {
         showConstellations={showConstellations}
         showLabels={showLabels}
         appMode={appMode}
-        videoElement={videoEl}
+        mediaElement={mediaEl}
         videoFormat={videoFormat}
         coveLight={coveLight}
         coveColor={coveColor}
@@ -233,17 +247,17 @@ export default function PlanetariumApp() {
 
           {appMode === "movie" && (
             <>
-              {videoSrc ? (
+              {mediaSrc ? (
                 <button
                   className="btn btn-sm active"
-                  onClick={handleRemoveVideo}
+                  onClick={handleRemoveMedia}
                   style={{
                     backgroundColor: "#ff4444",
                     color: "white",
                     borderColor: "#ff4444",
                   }}
                 >
-                  ✕ Stop Video
+                  ✕ Stop Media
                 </button>
               ) : (
                 <>
@@ -254,17 +268,17 @@ export default function PlanetariumApp() {
                         f === "fisheye" ? "equirectangular" : "fisheye",
                       )
                     }
-                    title="Toggle between Fulldome (Fisheye) and standard 360 (Equirectangular) video formats"
+                    title="Toggle between Fulldome (Fisheye) and standard 360 (Equirectangular) formats"
                   >
                     {videoFormat === "fisheye" ? "⭕ Fisheye" : "🌐 360 EQ"}
                   </button>
                   <label className="btn btn-sm" style={{ cursor: "pointer" }}>
-                    🎥 Load Video
+                    🎥 Load Media
                     <input
                       type="file"
-                      accept="video/*"
+                      accept="video/*,image/*"
                       style={{ display: "none" }}
-                      onChange={handleVideoUpload}
+                      onChange={handleMediaUpload}
                     />
                   </label>
                 </>
@@ -311,7 +325,7 @@ export default function PlanetariumApp() {
           ))}
         </div>
 
-        {appMode === "movie" && videoEl && <VideoControls video={videoEl} />}
+        {appMode === "movie" && isVideo && mediaEl && <VideoControls video={mediaEl as HTMLVideoElement} />}
 
         {appMode === "sky" && (
           <TimeControls

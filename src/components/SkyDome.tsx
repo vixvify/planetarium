@@ -180,8 +180,9 @@ interface SkyDomeProps {
   longitude: number;
   showConstellations: boolean;
   showLabels: boolean;
+  showArt?: boolean;
   appMode: "lobby" | "sky" | "movie";
-  videoElement?: HTMLVideoElement | null;
+  mediaElement?: HTMLVideoElement | HTMLImageElement | null;
   videoFormat?: "fisheye" | "equirectangular";
   coveLight?: boolean;
   coveColor?: string;
@@ -201,8 +202,9 @@ export default function SkyDome({
   longitude,
   showConstellations,
   showLabels,
+  showArt = false,
   appMode,
-  videoElement,
+  mediaElement,
   videoFormat = "fisheye",
   coveLight = true,
   coveColor = "#aa00ff",
@@ -259,15 +261,17 @@ export default function SkyDome({
   const lonRef = useRef(longitude);
   const showConstellationsRef = useRef(showConstellations);
   const showLabelsRef = useRef(showLabels);
+  const showArtRef = useRef(showArt);
   const prevModeRef = useRef(appMode);
-  const videoElementRef = useRef(videoElement);
+  const mediaElementRef = useRef(mediaElement);
 
   simulationDateRef.current = simulationDate;
   latRef.current = latitude;
   lonRef.current = longitude;
   showConstellationsRef.current = showConstellations;
   showLabelsRef.current = showLabels;
-  videoElementRef.current = videoElement;
+  showArtRef.current = showArt;
+  mediaElementRef.current = mediaElement;
 
   const createGlowTexture = useCallback((color: string, size: number = 128) => {
     const canvas = document.createElement("canvas");
@@ -1371,12 +1375,12 @@ export default function SkyDome({
         // --- Video Ambilight Extraction ---
         if (
           isMovie &&
-          videoElementRef.current &&
-          videoElementRef.current.readyState >= 2
+          mediaElementRef.current &&
+          (mediaElementRef.current instanceof HTMLVideoElement ? mediaElementRef.current.readyState >= 2 : mediaElementRef.current.complete)
         ) {
           if (s.frameCount % 4 === 0) {
             try {
-              s.videoCtx.drawImage(videoElementRef.current, 0, 0, 16, 16);
+              s.videoCtx.drawImage(mediaElementRef.current, 0, 0, 16, 16);
               const imgData = s.videoCtx.getImageData(0, 0, 16, 16).data;
               let r = 0,
                 g = 0,
@@ -1520,32 +1524,37 @@ export default function SkyDome({
     if (!s) return;
 
     let activeMaterial: THREE.Material;
-    let videoTexture: THREE.VideoTexture | null = null;
+    let mediaTexture: THREE.Texture | null = null;
     let videoMaterial: THREE.Material | null = null;
 
     if (appMode === "lobby") {
       activeMaterial = s.lobbyMaterial;
     } else if (appMode === "movie") {
-      if (videoElement) {
-        videoTexture = new THREE.VideoTexture(videoElement);
-        videoTexture.minFilter = THREE.LinearFilter;
-        videoTexture.magFilter = THREE.LinearFilter;
+      if (mediaElement) {
+        if (mediaElement instanceof HTMLVideoElement) {
+          mediaTexture = new THREE.VideoTexture(mediaElement);
+        } else {
+          mediaTexture = new THREE.Texture(mediaElement);
+          mediaTexture.needsUpdate = true;
+        }
+        mediaTexture.minFilter = THREE.LinearFilter;
+        mediaTexture.magFilter = THREE.LinearFilter;
 
         if (videoFormat === "equirectangular") {
-          videoTexture.repeat.set(1, 0.5);
-          videoTexture.offset.set(0, 0.5);
+          mediaTexture.repeat.set(1, 0.5);
+          mediaTexture.offset.set(0, 0.5);
           videoMaterial = new THREE.MeshBasicMaterial({
-            map: videoTexture,
+            map: mediaTexture,
             side: THREE.BackSide,
           });
         } else {
-          videoTexture.repeat.set(1, 1);
-          videoTexture.offset.set(0, 0);
+          mediaTexture.repeat.set(1, 1);
+          mediaTexture.offset.set(0, 0);
           videoMaterial = new THREE.ShaderMaterial({
             vertexShader: FISHEYE_VERTEX_SHADER,
             fragmentShader: FISHEYE_FRAGMENT_SHADER,
             uniforms: {
-              tVideo: { value: videoTexture },
+              tVideo: { value: mediaTexture },
               uCoveColor: { value: new THREE.Color(coveColor) },
               uCoveIntensity: { value: coveLight ? 1.5 : 0.0 },
             },
@@ -1554,7 +1563,7 @@ export default function SkyDome({
         }
         activeMaterial = videoMaterial;
       } else {
-        // Dark default for movie mode when no video is loaded
+        // Dark default for movie mode when no media is loaded
         activeMaterial = s.lobbyMaterial;
       }
     } else {
@@ -1584,10 +1593,10 @@ export default function SkyDome({
     }
 
     return () => {
-      if (videoTexture) videoTexture.dispose();
+      if (mediaTexture) mediaTexture.dispose();
       if (videoMaterial) videoMaterial.dispose();
     };
-  }, [appMode, videoElement, videoFormat]);
+  }, [appMode, mediaElement, videoFormat]);
 
   useEffect(() => {
     const s = sceneRef.current;

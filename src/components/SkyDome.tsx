@@ -137,9 +137,9 @@ void main() {
   // A dark subtle base for the lobby dome
   vec3 color = vec3(0.005, 0.005, 0.01);
   
-  // Cove Light Effect
-  float coveFade = exp(-h * 4.0);
-  color += uCoveColor * coveFade * uCoveIntensity;
+  // Cove Light Effect (adjusted for wider spread and much higher brightness)
+  float coveFade = exp(-h * 3.5);
+  color += uCoveColor * coveFade * (uCoveIntensity * 2.5);
   
   gl_FragColor = vec4(color, 1.0);
 }
@@ -166,9 +166,9 @@ void main() {
   
   vec3 finalColor = texture2D(tVideo, vec2(u, v)).rgb;
   
-  // Cove Light Effect (adjusted for higher spread)
-  float coveFade = exp(-altitude * 4.0);
-  finalColor += uCoveColor * coveFade * uCoveIntensity;
+  // Cove Light Effect (adjusted for wider spread and much higher brightness)
+  float coveFade = exp(-altitude * 3.5);
+  finalColor += uCoveColor * coveFade * (uCoveIntensity * 2.5);
   
   gl_FragColor = vec4(finalColor, 1.0);
 }
@@ -221,6 +221,7 @@ export default function SkyDome({
     starMaterial: THREE.ShaderMaterial;
     constellationLine: THREE.LineSegments;
     constellationPositions: Float32Array;
+    labelSprites: THREE.Sprite[];
     sunSprite: THREE.Sprite;
     moonSprite: THREE.Sprite;
     roomLights: THREE.PointLight[];
@@ -257,6 +258,7 @@ export default function SkyDome({
   const latRef = useRef(latitude);
   const lonRef = useRef(longitude);
   const showConstellationsRef = useRef(showConstellations);
+  const showLabelsRef = useRef(showLabels);
   const prevModeRef = useRef(appMode);
   const videoElementRef = useRef(videoElement);
 
@@ -264,6 +266,7 @@ export default function SkyDome({
   latRef.current = latitude;
   lonRef.current = longitude;
   showConstellationsRef.current = showConstellations;
+  showLabelsRef.current = showLabels;
   videoElementRef.current = videoElement;
 
   const createGlowTexture = useCallback((color: string, size: number = 128) => {
@@ -367,9 +370,9 @@ export default function SkyDome({
     scene.add(walls);
 
     const rimMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2a3a58,
-      emissive: 0x0e1c38,
-      emissiveIntensity: 0.5,
+      color: 0x111111,
+      roughness: 0.9,
+      metalness: 0.1,
     });
     const rimGeo = new THREE.TorusGeometry(ROOM_RADIUS - 0.5, 1.5, 8, 64);
     const rim = new THREE.Mesh(rimGeo, rimMaterial);
@@ -472,47 +475,249 @@ export default function SkyDome({
     }
 
     const projectorGroup = new THREE.Group();
-    projectorGroup.position.set(0, FLOOR_Y + 1.5, 0);
+    projectorGroup.position.set(0, FLOOR_Y + 0.5, 0);
 
-    const pedGeo = new THREE.CylinderGeometry(2, 2.5, 6, 32);
-    const ped = new THREE.Mesh(pedGeo, projectorMat);
-    ped.position.y = 3;
-    projectorGroup.add(ped);
+    const projBaseMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      roughness: 0.7,
+      metalness: 0.2,
+    });
+    const projFrameMat = new THREE.MeshStandardMaterial({
+      color: 0x333333,
+      roughness: 0.4,
+      metalness: 0.3,
+    });
+    const projDetailMat = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.3,
+      metalness: 0.4,
+    });
+    const projLensMat = new THREE.MeshStandardMaterial({
+      color: 0x020202,
+      roughness: 0.05,
+      metalness: 0.8,
+    });
 
-    const forkBaseGeo = new THREE.CylinderGeometry(2.5, 2.5, 1, 32);
-    const forkBase = new THREE.Mesh(forkBaseGeo, projectorMat);
-    forkBase.position.y = 6.5;
-    projectorGroup.add(forkBase);
+    const standGroup = new THREE.Group();
+
+    // 4 Slanted Legs
+    for (let i = 0; i < 4; i++) {
+      const legPivot = new THREE.Group();
+      legPivot.rotation.y = (i * Math.PI) / 2 + Math.PI / 4;
+      const legMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 0.8, 9, 16),
+        projFrameMat,
+      );
+      legMesh.position.set(3.5, 4.5, 0);
+      legMesh.rotation.z = Math.PI / 10; // Lean in
+      legPivot.add(legMesh);
+      standGroup.add(legPivot);
+    }
+
+    // Central Collar/Mount
+    const collar = new THREE.Mesh(
+      new THREE.CylinderGeometry(4.2, 3.5, 2.5, 32),
+      projBaseMat,
+    );
+    collar.position.y = 9.0;
+    standGroup.add(collar);
+
+    // U-shaped Fork / Arms
+    const forkGroup = new THREE.Group();
+    forkGroup.position.y = 10.25;
+    const forkBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.8, 4.2, 1.2, 32),
+      projFrameMat,
+    );
+    forkGroup.add(forkBase);
 
     for (const side of [-1, 1]) {
-      const armGeo = new THREE.BoxGeometry(1.2, 6, 3);
-      const arm = new THREE.Mesh(armGeo, projectorMat);
-      arm.position.set(side * 3, 9.5, 0);
-      projectorGroup.add(arm);
+      const arm = new THREE.Mesh(
+        new THREE.BoxGeometry(1.8, 6.5, 4),
+        projFrameMat,
+      );
+      arm.position.set(side * 4.0, 3.25, 0);
+      const joint = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.2, 2.2, 2.2, 32),
+        projBaseMat,
+      );
+      joint.rotation.z = Math.PI / 2;
+      joint.position.set(side * 4.0, 6.0, 0);
+      forkGroup.add(arm);
+      forkGroup.add(joint);
+    }
+    standGroup.add(forkGroup);
+    projectorGroup.add(standGroup);
+
+    // 3. Dumbbell axis (The main tiltable structure)
+    const dumbbell = new THREE.Group();
+    dumbbell.position.set(0, 16.25, 0); // Aligns with the fork joints
+    dumbbell.rotation.x = Math.PI / 2; // Lies perfectly horizontal
+
+    // Cross-axis connecting to forks
+    const crossAxis = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.4, 1.4, 10.5, 32),
+      projDetailMat,
+    );
+    crossAxis.rotation.z = Math.PI / 2;
+    dumbbell.add(crossAxis);
+
+    // Central core (large gear/ring section)
+    const coreCenter = new THREE.Mesh(
+      new THREE.CylinderGeometry(4.8, 4.8, 4.5, 32),
+      projBaseMat,
+    );
+    const coreRing = new THREE.Mesh(
+      new THREE.TorusGeometry(4.9, 0.4, 16, 64),
+      projDetailMat,
+    );
+    dumbbell.add(coreCenter);
+    dumbbell.add(coreRing);
+
+    // Planetary projectors ring (The wide halo ring)
+    const planetRingGeo = new THREE.TorusGeometry(6.5, 0.2, 8, 64);
+    const planetRing = new THREE.Mesh(planetRingGeo, projFrameMat);
+    planetRing.rotation.x = Math.PI / 2;
+    dumbbell.add(planetRing);
+
+    for (let i = 0; i < 8; i++) {
+      const pBox = new THREE.Mesh(
+        new THREE.BoxGeometry(1.2, 1.8, 1.2),
+        projDetailMat,
+      );
+      const a = (i * Math.PI) / 4;
+      pBox.position.set(Math.cos(a) * 6.5, 0, Math.sin(a) * 6.5);
+      pBox.lookAt(0, 0, 0);
+      dumbbell.add(pBox);
     }
 
-    const sphereGeo = new THREE.IcosahedronGeometry(3.5, 3);
-    const sphere = new THREE.Mesh(sphereGeo, projectorMat);
-    sphere.position.y = 10.5;
-
-    const lensPlacer = new THREE.IcosahedronGeometry(3.6, 1);
+    // 4. North & South sections
+    const sphereGeo = new THREE.IcosahedronGeometry(4.8, 4);
+    const lensPlacer = new THREE.IcosahedronGeometry(4.8, 2);
     const posAttr = lensPlacer.getAttribute("position");
-    for (let v = 0; v < posAttr.count; v++) {
-      const vx = posAttr.getX(v),
-        vy = posAttr.getY(v),
-        vz = posAttr.getZ(v);
-      const portGeo = new THREE.CylinderGeometry(0.3, 0.4, 0.5, 8);
-      const port = new THREE.Mesh(portGeo, fenceMetalMaterial);
-      port.position.set(vx, vy, vz);
-      port.lookAt(vx * 2, vy * 2, vz * 2);
-      port.rotateX(Math.PI / 2);
-      sphere.add(port);
+
+    for (const side of [-1, 1]) {
+      const sideGroup = new THREE.Group();
+
+      // The Truss Lattice Neck
+      const latticeGeo = new THREE.CylinderGeometry(3.0, 3.0, 5.5, 16, 4, true);
+      const latticeMat = new THREE.MeshStandardMaterial({
+        color: 0x333333,
+        wireframe: true,
+      });
+      const lattice = new THREE.Mesh(latticeGeo, latticeMat);
+      lattice.position.y = side * 5.0;
+      sideGroup.add(lattice);
+
+      // Solid core inside lattice
+      const innerCore = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.2, 1.2, 5.5, 16),
+        projDetailMat,
+      );
+      innerCore.position.y = side * 5.0;
+      sideGroup.add(innerCore);
+
+      // Flange between lattice and sphere
+      const flange = new THREE.Mesh(
+        new THREE.CylinderGeometry(4.6, 4.6, 0.6, 32),
+        projFrameMat,
+      );
+      flange.position.y = side * 8.0;
+      sideGroup.add(flange);
+
+      // The Main Sphere
+      const sphereGroup = new THREE.Group();
+      sphereGroup.position.y = side * 12.5;
+      const sphereMesh = new THREE.Mesh(sphereGeo, projBaseMat);
+      sphereGroup.add(sphereMesh);
+
+      // Add large protruding lenses
+      for (let v = 0; v < posAttr.count; v += 3) {
+        const vx = posAttr.getX(v),
+          vy = posAttr.getY(v),
+          vz = posAttr.getZ(v);
+        // Skip inward facing lenses
+        if (side === 1 && vy < -1.8) continue;
+        if (side === -1 && vy > 1.8) continue;
+
+        const portGroup = new THREE.Group();
+        portGroup.position.set(vx, vy, vz);
+        portGroup.lookAt(vx * 2, vy * 2, vz * 2);
+
+        // Base wide ring
+        const ring = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.8, 1.0, 0.7, 16),
+          projDetailMat,
+        );
+        ring.rotation.x = Math.PI / 2;
+        portGroup.add(ring);
+
+        // Inner protruding barrel
+        const barrel = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.6, 0.6, 1.0, 16),
+          projFrameMat,
+        );
+        barrel.rotation.x = Math.PI / 2;
+        barrel.position.z = 0.2;
+        portGroup.add(barrel);
+
+        // Lens glass
+        const glass = new THREE.Mesh(
+          new THREE.SphereGeometry(
+            0.55,
+            16,
+            16,
+            0,
+            Math.PI * 2,
+            0,
+            Math.PI / 2,
+          ),
+          projLensMat,
+        );
+        glass.position.z = 0.6;
+        glass.rotation.x = Math.PI / 2;
+        portGroup.add(glass);
+
+        sphereGroup.add(portGroup);
+      }
+
+      // Mini-spheres (satellite projectors)
+      const topMini = new THREE.Group();
+      topMini.position.y = side === 1 ? 5.5 : -5.5;
+      if (side === -1) topMini.rotation.x = Math.PI;
+
+      const miniStem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.3, 1.5, 8),
+        projFrameMat,
+      );
+      const miniBall = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(1.5, 2),
+        projBaseMat,
+      );
+      miniBall.position.y = 1.2;
+      topMini.add(miniStem);
+      topMini.add(miniBall);
+
+      // Lenses for mini ball
+      const miniLensGeo = new THREE.CylinderGeometry(0.3, 0.4, 0.5, 8);
+      for (let mx of [-1, 0, 1]) {
+        for (let mz of [-1, 1]) {
+          if (mx === 0 && mz === 0) continue;
+          const mLens = new THREE.Mesh(miniLensGeo, projDetailMat);
+          mLens.position.set(mx * 1.3, 1.2, mz * 1.3);
+          mLens.lookAt(mx * 3, 1.2, mz * 3);
+          mLens.rotation.x = Math.PI / 2;
+          topMini.add(mLens);
+        }
+      }
+      sphereGroup.add(topMini);
+
+      sideGroup.add(sphereGroup);
+      dumbbell.add(sideGroup);
     }
 
-    sphere.rotation.x = -Math.PI / 6;
-    sphere.rotation.z = Math.PI / 12;
-    projectorGroup.add(sphere);
-
+    projectorGroup.add(dumbbell);
+    projectorGroup.scale.set(0.9, 0.9, 0.9); // Scale up to be massive and tall
     scene.add(projectorGroup);
 
     const roomLights: THREE.PointLight[] = [];
@@ -573,7 +778,7 @@ export default function SkyDome({
     const seatAngle = Math.PI * 1.25; // Sit between W and S (South-West quadrant)
     const seatRadius = 55;
     const camX = Math.cos(seatAngle) * seatRadius;
-    const camY = FLOOR_Y + 8;
+    const camY = FLOOR_Y + 5.5; // Lowered eye level to simulate sitting
     const camZ = Math.sin(seatAngle) * seatRadius;
     camera.position.set(camX, camY, camZ);
 
@@ -817,6 +1022,7 @@ export default function SkyDome({
       { label: "S", az: 180 },
       { label: "W", az: 270 },
     ];
+    const labelSprites: THREE.Sprite[] = [];
     for (const dir of dirs) {
       const sprite = createTextSprite(dir.label, "#4fc3f7", 40);
       const azRad = (dir.az * Math.PI) / 180;
@@ -827,6 +1033,7 @@ export default function SkyDome({
       );
       sprite.scale.set(10, 5, 1);
       scene.add(sprite);
+      labelSprites.push(sprite);
     }
 
     const clock = new THREE.Clock();
@@ -864,6 +1071,7 @@ export default function SkyDome({
       starMaterial,
       constellationLine,
       constellationPositions,
+      labelSprites,
       sunSprite,
       moonSprite,
       roomLights,
@@ -935,6 +1143,12 @@ export default function SkyDome({
       const localST = lst(jd, lon);
       const dt = Math.min(0.1, s.clock.getDelta());
       const elapsed = s.clock.elapsedTime;
+      const isSky = s.activeMode === "sky";
+
+      s.constellationLine.visible = showConst && isSky;
+      s.labelSprites.forEach((sprite) => {
+        sprite.visible = showLabelsRef.current && isSky;
+      });
 
       // Cove Intensity Smooth Fade
       if (Math.abs(s.currentCoveIntensity - s.targetCoveIntensity) > 0.005) {
@@ -1123,7 +1337,7 @@ export default function SkyDome({
 
       // Use activeMode and tie intensity to the dome's fade for synchronized dimming
       const targetMode = s.activeMode;
-      const isTargetSkyMode = targetMode === 'sky';
+      const isTargetSkyMode = targetMode === "sky";
       const fadeOpacity = (s.fadeSphere.material as THREE.Material).opacity;
       const dimFactor = Math.max(0, 1.0 - fadeOpacity); // 0 when fully black, 1 when fully visible
 
@@ -1150,7 +1364,8 @@ export default function SkyDome({
         }
       } else {
         const coveIntensity = s.currentCoveIntensity;
-        const coveColorObj = s.domeMaterial.uniforms.uCoveColor.value as THREE.Color;
+        const coveColorObj = s.domeMaterial.uniforms.uCoveColor
+          .value as THREE.Color;
         const isMovie = targetMode === "movie";
 
         // --- Video Ambilight Extraction ---
@@ -1163,7 +1378,9 @@ export default function SkyDome({
             try {
               s.videoCtx.drawImage(videoElementRef.current, 0, 0, 16, 16);
               const imgData = s.videoCtx.getImageData(0, 0, 16, 16).data;
-              let r = 0, g = 0, b = 0;
+              let r = 0,
+                g = 0,
+                b = 0;
               for (let i = 0; i < imgData.length; i += 4) {
                 r += imgData[i];
                 g += imgData[i + 1];
@@ -1186,8 +1403,10 @@ export default function SkyDome({
           0.587 * s.currentVideoColor.g +
           0.114 * s.currentVideoColor.b;
 
-        targetAmbientInt = (isMovie ? 0.1 + vBright * 0.6 : 0.0) + coveIntensity * 0.4;
-        targetHemiInt = (isMovie ? 0.05 + vBright * 0.4 : 0.0) + coveIntensity * 0.3;
+        targetAmbientInt =
+          (isMovie ? 0.1 + vBright * 0.6 : 0.0) + coveIntensity * 0.4;
+        targetHemiInt =
+          (isMovie ? 0.05 + vBright * 0.4 : 0.0) + coveIntensity * 0.3;
 
         for (let li = 0; li < s.roomLights.length; li++) {
           const baseColor = isMovie
@@ -1195,7 +1414,10 @@ export default function SkyDome({
             : new THREE.Color(0x1a2038);
           let c = new THREE.Color();
           if (coveIntensity > 0.05) {
-            c.copy(baseColor).lerp(coveColorObj, Math.min(1.0, coveIntensity * 0.6));
+            c.copy(baseColor).lerp(
+              coveColorObj,
+              Math.min(1.0, coveIntensity * 0.6),
+            );
           } else {
             c.copy(baseColor);
           }
@@ -1203,7 +1425,7 @@ export default function SkyDome({
           const baseIntensity = isMovie ? 0.1 + vBright * 6.0 : 0.0;
           let intensity = 0;
           if (li >= s.roomLights.length - 2) {
-            intensity = baseIntensity + coveIntensity * 2.0;
+            intensity = baseIntensity + coveIntensity * 4.0; // Boosted to light up the projector more
           } else {
             intensity = baseIntensity * 0.5 + coveIntensity * 1.5;
           }
@@ -1214,24 +1436,33 @@ export default function SkyDome({
 
       // Smoothly interpolate the base targets, then apply the strict dimFactor
       const lerpSpeed = dt * 3.0; // 3 units per second smooth transition
-      
-      if (s.ambient.userData.base === undefined) s.ambient.userData.base = s.ambient.intensity;
-      s.ambient.userData.base += (targetAmbientInt - s.ambient.userData.base) * lerpSpeed;
-      if (Math.abs(s.ambient.userData.base - targetAmbientInt) < 0.001) s.ambient.userData.base = targetAmbientInt;
+
+      if (s.ambient.userData.base === undefined)
+        s.ambient.userData.base = s.ambient.intensity;
+      s.ambient.userData.base +=
+        (targetAmbientInt - s.ambient.userData.base) * lerpSpeed;
+      if (Math.abs(s.ambient.userData.base - targetAmbientInt) < 0.001)
+        s.ambient.userData.base = targetAmbientInt;
       s.ambient.intensity = s.ambient.userData.base * dimFactor;
 
-      if (s.hemi.userData.base === undefined) s.hemi.userData.base = s.hemi.intensity;
-      s.hemi.userData.base += (targetHemiInt - s.hemi.userData.base) * lerpSpeed;
-      if (Math.abs(s.hemi.userData.base - targetHemiInt) < 0.001) s.hemi.userData.base = targetHemiInt;
+      if (s.hemi.userData.base === undefined)
+        s.hemi.userData.base = s.hemi.intensity;
+      s.hemi.userData.base +=
+        (targetHemiInt - s.hemi.userData.base) * lerpSpeed;
+      if (Math.abs(s.hemi.userData.base - targetHemiInt) < 0.001)
+        s.hemi.userData.base = targetHemiInt;
       s.hemi.intensity = s.hemi.userData.base * dimFactor;
 
       for (let li = 0; li < s.roomLights.length; li++) {
         const light = s.roomLights[li];
         light.color.lerp(targetLightColors[li], lerpSpeed);
-        
-        if (light.userData.base === undefined) light.userData.base = light.intensity;
-        light.userData.base += (targetLightInts[li] - light.userData.base) * lerpSpeed;
-        if (Math.abs(light.userData.base - targetLightInts[li]) < 0.001) light.userData.base = targetLightInts[li];
+
+        if (light.userData.base === undefined)
+          light.userData.base = light.intensity;
+        light.userData.base +=
+          (targetLightInts[li] - light.userData.base) * lerpSpeed;
+        if (Math.abs(light.userData.base - targetLightInts[li]) < 0.001)
+          light.userData.base = targetLightInts[li];
         light.intensity = light.userData.base * dimFactor;
       }
 

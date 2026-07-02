@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useState, useCallback, useEffect, useRef } from 'react';
-import dynamic from 'next/dynamic';
-import TimeControls from './TimeControls';
-import VideoControls from './VideoControls';
-import InfoPanel from './InfoPanel';
+import { useState, useCallback, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
+import TimeControls from "./TimeControls";
+import VideoControls from "./VideoControls";
+import InfoPanel from "./InfoPanel";
 
-const SkyDome = dynamic(() => import('./SkyDome'), { ssr: false });
+const SkyDome = dynamic(() => import("./SkyDome"), { ssr: false });
 
 const DEFAULT_LAT = 13.75;
 const DEFAULT_LON = 100.52;
@@ -22,10 +22,12 @@ export default function PlanetariumApp() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-  const [videoFormat, setVideoFormat] = useState<'fisheye' | 'equirectangular'>('fisheye');
+  const [videoFormat, setVideoFormat] = useState<"fisheye" | "equirectangular">(
+    "fisheye",
+  );
   const [coveLight, setCoveLight] = useState<boolean>(true);
-  const [coveColor, setCoveColor] = useState<string>('#aa00ff');
-  const [appMode, setAppMode] = useState<'lobby' | 'sky' | 'movie'>('sky');
+  const [coveColor, setCoveColor] = useState<string>("#aa00ff");
+  const [appMode, setAppMode] = useState<"lobby" | "sky" | "movie">("sky");
 
   const simulationDateRef = useRef(simulationDate);
   const playbackSpeedRef = useRef(playbackSpeed);
@@ -47,7 +49,7 @@ export default function PlanetariumApp() {
     let animId: number;
 
     const tick = (now: number) => {
-      const delta = (now - lastTime) / 1000; 
+      const delta = (now - lastTime) / 1000;
       lastTime = now;
 
       const speed = playbackSpeedRef.current;
@@ -105,7 +107,6 @@ export default function PlanetariumApp() {
 
   return (
     <div className="planetarium-container" id="planetarium-app">
-
       {videoSrc && (
         <video
           ref={onVideoRef}
@@ -114,7 +115,7 @@ export default function PlanetariumApp() {
           loop
           autoPlay
           playsInline
-          style={{ display: 'none' }}
+          style={{ display: "none" }}
         />
       )}
 
@@ -132,15 +133,20 @@ export default function PlanetariumApp() {
       />
 
       <div className="planetarium-overlay">
-
-
-
         <div className="location-badge glass-panel" id="location-badge">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '14px' }}>📍</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "14px" }}>📍</span>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 600 }}>Bangkok, Thailand</div>
-              <div style={{ fontSize: '10px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+              <div style={{ fontSize: "12px", fontWeight: 600 }}>
+                Bangkok, Thailand
+              </div>
+              <div
+                style={{
+                  fontSize: "10px",
+                  color: "var(--text-dim)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
                 {latitude.toFixed(2)}°N {longitude.toFixed(2)}°E
               </div>
             </div>
@@ -149,25 +155,25 @@ export default function PlanetariumApp() {
 
         <div
           style={{
-            position: 'absolute',
-            top: '80px',
-            right: '20px',
-            display: 'flex',
-            gap: '6px',
-            animation: 'fadeIn 0.6s ease 0.5s both',
+            position: "absolute",
+            top: "80px",
+            right: "20px",
+            display: "flex",
+            gap: "6px",
+            animation: "fadeIn 0.6s ease 0.5s both",
           }}
         >
-          {appMode === 'sky' && (
+          {appMode === "sky" && (
             <>
               <button
-                className={`btn btn-sm ${showConstellations ? 'active' : ''}`}
+                className={`btn btn-sm ${showConstellations ? "active" : ""}`}
                 onClick={() => setShowConstellations((c) => !c)}
                 id="btn-constellations"
               >
                 ✦ Lines
               </button>
               <button
-                className={`btn btn-sm ${showLabels ? 'active' : ''}`}
+                className={`btn btn-sm ${showLabels ? "active" : ""}`}
                 onClick={() => setShowLabels((l) => !l)}
                 id="btn-labels"
               >
@@ -175,41 +181,91 @@ export default function PlanetariumApp() {
               </button>
             </>
           )}
-          
-          {appMode !== 'sky' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(0,0,0,0.4)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <label style={{ fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', margin: 0, fontWeight: 600 }}>
-                <input type="checkbox" checked={coveLight} onChange={(e) => setCoveLight(e.target.checked)} style={{ cursor: 'pointer' }} />
+
+          {appMode !== "sky" && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "rgba(0,0,0,0.4)",
+                padding: "2px 8px",
+                borderRadius: "4px",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
+            >
+              <label
+                style={{
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  margin: 0,
+                  fontWeight: 600,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={coveLight}
+                  onChange={(e) => setCoveLight(e.target.checked)}
+                  style={{ cursor: "pointer" }}
+                />
                 Cove Light
               </label>
-              <input 
-                type="color" 
-                value={coveColor} 
-                onChange={(e) => setCoveColor(e.target.value)} 
-                style={{ width: '16px', height: '16px', padding: 0, border: 'none', cursor: 'pointer', borderRadius: '2px', background: 'transparent' }} 
+              <input
+                type="color"
+                value={coveColor}
+                onChange={(e) => setCoveColor(e.target.value)}
+                style={{
+                  width: "16px",
+                  height: "16px",
+                  padding: 0,
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: "2px",
+                  background: "transparent",
+                }}
                 title="Cove Light Color"
               />
             </div>
           )}
-          
-          {appMode === 'movie' && (
+
+          {appMode === "movie" && (
             <>
               {videoSrc ? (
-                <button className="btn btn-sm active" onClick={handleRemoveVideo} style={{ backgroundColor: '#ff4444', color: 'white', borderColor: '#ff4444' }}>
+                <button
+                  className="btn btn-sm active"
+                  onClick={handleRemoveVideo}
+                  style={{
+                    backgroundColor: "#ff4444",
+                    color: "white",
+                    borderColor: "#ff4444",
+                  }}
+                >
                   ✕ Stop Video
                 </button>
               ) : (
                 <>
                   <button
-                    className={`btn btn-sm ${videoFormat === 'fisheye' ? 'active' : ''}`}
-                    onClick={() => setVideoFormat(f => f === 'fisheye' ? 'equirectangular' : 'fisheye')}
+                    className={`btn btn-sm ${videoFormat === "fisheye" ? "active" : ""}`}
+                    onClick={() =>
+                      setVideoFormat((f) =>
+                        f === "fisheye" ? "equirectangular" : "fisheye",
+                      )
+                    }
                     title="Toggle between Fulldome (Fisheye) and standard 360 (Equirectangular) video formats"
                   >
-                    {videoFormat === 'fisheye' ? '⭕ Fisheye' : '🌐 360 EQ'}
+                    {videoFormat === "fisheye" ? "⭕ Fisheye" : "🌐 360 EQ"}
                   </button>
-                  <label className="btn btn-sm" style={{ cursor: 'pointer' }}>
+                  <label className="btn btn-sm" style={{ cursor: "pointer" }}>
                     🎥 Load Video
-                    <input type="file" accept="video/*" style={{ display: 'none' }} onChange={handleVideoUpload} />
+                    <input
+                      type="file"
+                      accept="video/*"
+                      style={{ display: "none" }}
+                      onChange={handleVideoUpload}
+                    />
                   </label>
                 </>
               )}
@@ -217,35 +273,37 @@ export default function PlanetariumApp() {
           )}
         </div>
 
-        <div style={{
-          position: 'absolute',
-          top: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          display: 'flex',
-          background: 'rgba(10, 10, 15, 0.75)',
-          backdropFilter: 'blur(8px)',
-          borderRadius: '8px',
-          padding: '4px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          animation: 'fadeIn 0.6s ease 0.2s both',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
-        }}>
-          {(['lobby', 'sky', 'movie'] as const).map((mode) => (
+        <div
+          style={{
+            position: "absolute",
+            top: "20px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            background: "rgba(10, 10, 15, 0.75)",
+            backdropFilter: "blur(8px)",
+            borderRadius: "8px",
+            padding: "4px",
+            border: "1px solid rgba(255, 255, 255, 0.1)",
+            animation: "fadeIn 0.6s ease 0.2s both",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+          }}
+        >
+          {(["lobby", "sky", "movie"] as const).map((mode) => (
             <button
               key={mode}
               onClick={() => setAppMode(mode)}
               style={{
-                background: appMode === mode ? 'var(--accent)' : 'transparent',
-                color: appMode === mode ? 'black' : 'white',
-                border: 'none',
-                padding: '6px 16px',
-                borderRadius: '4px',
-                fontSize: '12px',
+                background: appMode === mode ? "var(--accent)" : "transparent",
+                color: appMode === mode ? "black" : "white",
+                border: "none",
+                padding: "6px 16px",
+                borderRadius: "4px",
+                fontSize: "12px",
                 fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                textTransform: 'capitalize'
+                cursor: "pointer",
+                transition: "all 0.2s",
+                textTransform: "capitalize",
               }}
             >
               {mode}
@@ -253,11 +311,9 @@ export default function PlanetariumApp() {
           ))}
         </div>
 
-        {appMode === 'movie' && videoEl && (
-          <VideoControls video={videoEl} />
-        )}
-        
-        {appMode === 'sky' && (
+        {appMode === "movie" && videoEl && <VideoControls video={videoEl} />}
+
+        {appMode === "sky" && (
           <TimeControls
             simulationDate={simulationDate}
             onDateChange={handleDateChange}

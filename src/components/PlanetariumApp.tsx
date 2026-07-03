@@ -28,6 +28,7 @@ export default function PlanetariumApp() {
   );
   const [coveLight, setCoveLight] = useState<boolean>(true);
   const [coveColor, setCoveColor] = useState<string>("#aa00ff");
+  const [wallLight, setWallLight] = useState<boolean>(true);
   const [appMode, setAppMode] = useState<"lobby" | "sky" | "movie">("sky");
 
   const simulationDateRef = useRef(simulationDate);
@@ -144,6 +145,7 @@ export default function PlanetariumApp() {
         videoFormat={videoFormat}
         coveLight={coveLight}
         coveColor={coveColor}
+        wallLight={wallLight}
       />
 
       <div className="planetarium-overlay">
@@ -170,7 +172,7 @@ export default function PlanetariumApp() {
         <div
           style={{
             position: "absolute",
-            top: "80px",
+            bottom: "70px",
             right: "20px",
             display: "flex",
             gap: "6px",
@@ -239,9 +241,31 @@ export default function PlanetariumApp() {
                   cursor: "pointer",
                   borderRadius: "2px",
                   background: "transparent",
+                  marginRight: "8px",
                 }}
                 title="Cove Light Color"
               />
+              <label
+                style={{
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  margin: 0,
+                  fontWeight: 600,
+                  borderLeft: "1px solid rgba(255,255,255,0.2)",
+                  paddingLeft: "8px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={wallLight}
+                  onChange={(e) => setWallLight(e.target.checked)}
+                  style={{ cursor: "pointer" }}
+                />
+                Wall Lights
+              </label>
             </div>
           )}
 
@@ -290,9 +314,8 @@ export default function PlanetariumApp() {
         <div
           style={{
             position: "absolute",
-            top: "20px",
-            left: "50%",
-            transform: "translateX(-50%)",
+            bottom: "20px",
+            left: "20px",
             display: "flex",
             background: "rgba(10, 10, 15, 0.75)",
             backdropFilter: "blur(8px)",

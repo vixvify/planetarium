@@ -186,6 +186,7 @@ interface SkyDomeProps {
   videoFormat?: "fisheye" | "equirectangular";
   coveLight?: boolean;
   coveColor?: string;
+  wallLight?: boolean;
 }
 
 const DOME_RADIUS = 80;
@@ -208,6 +209,7 @@ export default function SkyDome({
   videoFormat = "fisheye",
   coveLight = true,
   coveColor = "#aa00ff",
+  wallLight = true,
 }: SkyDomeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
@@ -227,6 +229,7 @@ export default function SkyDome({
     sunSprite: THREE.Sprite;
     moonSprite: THREE.Sprite;
     roomLights: THREE.PointLight[];
+    wallLights: THREE.Light[];
     ambient: THREE.AmbientLight;
     hemi: THREE.HemisphereLight;
     animationId: number;
@@ -234,6 +237,8 @@ export default function SkyDome({
 
     targetCoveIntensity: number;
     currentCoveIntensity: number;
+    targetWallLightIntensity: number;
+    currentWallLightIntensity: number;
     fadeSphere: THREE.Mesh;
     transitionState: "idle" | "fading_out" | "fading_in";
     pendingMaterial: THREE.Material;
@@ -329,6 +334,7 @@ export default function SkyDome({
       color: 0x22222a,
       roughness: 0.9,
       metalness: 0.1,
+      side: THREE.BackSide,
     });
     const floorMaterial = new THREE.MeshStandardMaterial({
       color: 0x22222a,
@@ -336,12 +342,12 @@ export default function SkyDome({
       metalness: 0.1,
     });
     const seatMaterial = new THREE.MeshStandardMaterial({
-      color: 0xddaa88,
-      roughness: 0.8,
+      color: 0x88522c, // Darker brown
+      roughness: 0.9,
       metalness: 0.2,
     });
     const seatCushionMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffaa66,
+      color: 0xad6536, // Slightly darker orange-brown / Saddle leather
       roughness: 0.6,
       metalness: 0.1,
     });
@@ -425,28 +431,62 @@ export default function SkyDome({
 
         seatGroup.lookAt(0, rowY, 0);
 
-        const backGeo = new THREE.BoxGeometry(2.6, 3.5, 0.5);
+        // Backrest (reclined)
+        const backGeo = new THREE.BoxGeometry(2.4, 3.2, 0.4);
         const back = new THREE.Mesh(backGeo, seatCushionMaterial);
-        back.position.set(0, 2.5, -1.2);
-        back.rotation.x = -0.25;
+        back.position.set(0, 2.6, -1.0);
+        back.rotation.x = -0.35; // Reclined for dome viewing
         seatGroup.add(back);
 
-        const cushionGeo = new THREE.BoxGeometry(2.6, 0.6, 2.4);
+        // Headrest
+        const headrestGeo = new THREE.CylinderGeometry(0.35, 0.35, 2.2, 16);
+        const headrest = new THREE.Mesh(headrestGeo, seatCushionMaterial);
+        headrest.rotation.z = Math.PI / 2;
+        headrest.position.set(0, 4.3, -1.6); // Attached to top of backrest
+        seatGroup.add(headrest);
+
+        // Seat Pan / Cushion
+        const cushionGeo = new THREE.BoxGeometry(2.4, 0.5, 2.2);
         const cushion = new THREE.Mesh(cushionGeo, seatCushionMaterial);
-        cushion.position.set(0, 1.2, -0.1);
-        cushion.rotation.x = 0.05;
+        cushion.position.set(0, 1.3, 0.0);
+        cushion.rotation.x = 0.1; // Tilted up slightly at the knees
         seatGroup.add(cushion);
 
-        const pillarGeo = new THREE.CylinderGeometry(0.8, 0.8, 1.0, 16);
+        // Knee Roll (rounded front edge)
+        const kneeGeo = new THREE.CylinderGeometry(0.25, 0.25, 2.4, 16);
+        const knee = new THREE.Mesh(kneeGeo, seatCushionMaterial);
+        knee.rotation.z = Math.PI / 2;
+        knee.position.set(0, 1.28, 1.1);
+        seatGroup.add(knee);
+
+        // Base Pillar
+        const pillarGeo = new THREE.CylinderGeometry(0.6, 0.8, 1.3, 16);
         const pillar = new THREE.Mesh(pillarGeo, seatMaterial);
-        pillar.position.set(0, 0.5, -0.5);
+        pillar.position.set(0, 0.65, -0.2);
         seatGroup.add(pillar);
 
-        const armGeo = new THREE.BoxGeometry(0.4, 0.8, 2.2);
+        // Armrests & Side Panels
+        const armGeo = new THREE.BoxGeometry(0.4, 0.2, 2.5);
+        const supportGeo = new THREE.CylinderGeometry(0.1, 0.1, 1.0, 8);
+        const panelGeo = new THREE.BoxGeometry(0.15, 2.2, 2.0);
+        
         for (const side of [-1, 1]) {
+          // Top padded armrest
           const arm = new THREE.Mesh(armGeo, seatMaterial);
-          arm.position.set(side * 1.5, 1.6, -0.2);
+          arm.position.set(side * 1.45, 1.9, 0.2);
+          arm.rotation.x = 0.05;
           seatGroup.add(arm);
+
+          // Support pillar for armrest
+          const support = new THREE.Mesh(supportGeo, metalMaterial);
+          support.position.set(side * 1.45, 1.4, 0.5);
+          seatGroup.add(support);
+          
+          // Sleek side enclosure panel (cinema style)
+          const panel = new THREE.Mesh(panelGeo, seatMaterial);
+          panel.position.set(side * 1.6, 1.6, -0.4);
+          panel.rotation.x = -0.2;
+          seatGroup.add(panel);
         }
 
         scene.add(seatGroup);
@@ -725,17 +765,51 @@ export default function SkyDome({
     scene.add(projectorGroup);
 
     const roomLights: THREE.PointLight[] = [];
+    const wallLights: THREE.Light[] = [];
 
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      const light = new THREE.PointLight(0x2a3a5a, 1.0, 150);
-      light.position.set(
-        Math.cos(angle) * (ROOM_RADIUS - 3),
-        FLOOR_Y + 5,
-        Math.sin(angle) * (ROOM_RADIUS - 3),
+    const SCONCE_COUNT = 16;
+    const sconceMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      roughness: 0.7,
+      metalness: 0.5,
+    });
+
+    for (let i = 0; i < SCONCE_COUNT; i++) {
+      const angle = (i / SCONCE_COUNT) * Math.PI * 2;
+      const x = Math.cos(angle) * (ROOM_RADIUS - 1.0);
+      const z = Math.sin(angle) * (ROOM_RADIUS - 1.0);
+      const y = FLOOR_Y + 16; // higher up the wall
+
+      const sconceGroup = new THREE.Group();
+      sconceGroup.position.set(x, y, z);
+      sconceGroup.lookAt(0, y, 0);
+
+      const fixture = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.3, 3.0, 16),
+        sconceMat,
       );
-      scene.add(light);
-      roomLights.push(light);
+      fixture.position.z = 0.4;
+      sconceGroup.add(fixture);
+      scene.add(sconceGroup);
+
+      // Down-firing spotlight, aiming slightly towards the wall base
+      const spotLight = new THREE.SpotLight(
+        0xffebd6,
+        40.0,
+        80,
+        Math.PI / 2.5,
+        0.8,
+        1.0,
+      );
+      spotLight.position.set(x * 0.95, y - 1.0, z * 0.95);
+
+      const target = new THREE.Object3D();
+      target.position.set(x * 1.0, FLOOR_Y, z * 1.0);
+      scene.add(target);
+      spotLight.target = target;
+
+      scene.add(spotLight);
+      wallLights.push(spotLight);
     }
 
     const ambient = new THREE.AmbientLight(0x2a3a5a, 2.0);
@@ -754,7 +828,7 @@ export default function SkyDome({
     scene.add(centerFill);
     roomLights.push(centerFill);
 
-    return { roomLights, ambient, hemi };
+    return { roomLights, wallLights, ambient, hemi };
   }, []);
 
   useEffect(() => {
@@ -911,7 +985,7 @@ export default function SkyDome({
     dome.position.y = 0;
     scene.add(dome);
 
-    const { roomLights, ambient, hemi } = buildInterior(scene);
+    const { roomLights, wallLights, ambient, hemi } = buildInterior(scene);
 
     const starCount = STARS.length;
     const starPositions = new Float32Array(starCount * 3);
@@ -1079,12 +1153,15 @@ export default function SkyDome({
       sunSprite,
       moonSprite,
       roomLights,
+      wallLights,
       ambient,
       hemi,
       animationId: 0,
       clock,
       targetCoveIntensity: coveLight ? 1.5 : 0.0,
       currentCoveIntensity: coveLight ? 1.5 : 0.0,
+      targetWallLightIntensity: wallLight ? 1.0 : 0.0,
+      currentWallLightIntensity: wallLight ? 1.0 : 0.0,
       fadeSphere,
       transitionState: "idle",
       pendingMaterial: domeMaterial,
@@ -1157,10 +1234,25 @@ export default function SkyDome({
       // Cove Intensity Smooth Fade
       if (Math.abs(s.currentCoveIntensity - s.targetCoveIntensity) > 0.005) {
         s.currentCoveIntensity +=
-          (s.targetCoveIntensity - s.currentCoveIntensity) * 5.0 * dt;
-      } else {
-        s.currentCoveIntensity = s.targetCoveIntensity;
+          (s.targetCoveIntensity - s.currentCoveIntensity) *
+          Math.min(1.0, dt * 2.0);
       }
+
+      // Wall Light Smooth Fade
+      if (
+        Math.abs(s.currentWallLightIntensity - s.targetWallLightIntensity) >
+        0.005
+      ) {
+        s.currentWallLightIntensity +=
+          (s.targetWallLightIntensity - s.currentWallLightIntensity) *
+          Math.min(1.0, dt * 3.0);
+      }
+      const wallIntensity = s.currentWallLightIntensity;
+
+      s.wallLights.forEach((wl) => {
+        wl.intensity = wallIntensity * 40.0;
+      });
+
       const currentMat = s.dome.material as any;
       if (currentMat.uniforms && currentMat.uniforms.uCoveIntensity) {
         currentMat.uniforms.uCoveIntensity.value = s.currentCoveIntensity;
@@ -1376,7 +1468,9 @@ export default function SkyDome({
         if (
           isMovie &&
           mediaElementRef.current &&
-          (mediaElementRef.current instanceof HTMLVideoElement ? mediaElementRef.current.readyState >= 2 : mediaElementRef.current.complete)
+          (mediaElementRef.current instanceof HTMLVideoElement
+            ? mediaElementRef.current.readyState >= 2
+            : mediaElementRef.current.complete)
         ) {
           if (s.frameCount % 4 === 0) {
             try {
@@ -1408,9 +1502,13 @@ export default function SkyDome({
           0.114 * s.currentVideoColor.b;
 
         targetAmbientInt =
-          (isMovie ? 0.1 + vBright * 0.6 : 0.0) + coveIntensity * 0.4;
+          (isMovie ? 0.1 + vBright * 0.6 : 0.0) +
+          coveIntensity * 0.4 +
+          wallIntensity * 1.5;
         targetHemiInt =
-          (isMovie ? 0.05 + vBright * 0.4 : 0.0) + coveIntensity * 0.3;
+          (isMovie ? 0.05 + vBright * 0.4 : 0.0) +
+          coveIntensity * 0.3 +
+          wallIntensity * 1.0;
 
         for (let li = 0; li < s.roomLights.length; li++) {
           const baseColor = isMovie
@@ -1605,8 +1703,10 @@ export default function SkyDome({
     const color = new THREE.Color(coveColor);
     // Cove intensity is forced off in 'sky' mode
     const intensity = coveLight && appMode !== "sky" ? 1.5 : 0.0;
+    const wallInt = wallLight && appMode !== "sky" ? 1.0 : 0.0;
 
     s.targetCoveIntensity = intensity;
+    s.targetWallLightIntensity = wallInt;
 
     // Instantly update color on all materials to avoid complex color lerping across materials
     if (s.domeMaterial.uniforms.uCoveColor) {
@@ -1624,7 +1724,7 @@ export default function SkyDome({
     ) {
       currentMat.uniforms.uCoveColor.value.copy(color);
     }
-  }, [coveLight, coveColor, appMode]);
+  }, [coveLight, coveColor, appMode, wallLight]);
 
   return (
     <div

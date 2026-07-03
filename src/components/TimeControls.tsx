@@ -84,17 +84,17 @@ export default function TimeControls({
 
   return (
     <div className="time-panel glass-panel" id="time-controls">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '380px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '240px' }}>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 600 }}>📅</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '9px', color: 'var(--text-dim)', fontWeight: 600 }}>📅</span>
             <input
               type="date"
               className="input"
               value={dateStr}
               onChange={handleDateInput}
-              style={{ width: '140px', fontSize: '12px' }}
+              style={{ width: '90px', fontSize: '10px', padding: '2px 4px' }}
               id="date-picker"
             />
           </div>
@@ -130,7 +130,7 @@ export default function TimeControls({
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
 
           <button
             className="btn btn-icon btn-sm"
@@ -147,7 +147,7 @@ export default function TimeControls({
             onClick={onTogglePlay}
             title={isPlaying ? 'Pause' : 'Play'}
             id="btn-play-pause"
-            style={{ fontSize: '18px' }}
+            style={{ fontSize: '14px' }}
           >
             {isPlaying ? '⏸' : '▶'}
           </button>
@@ -162,7 +162,7 @@ export default function TimeControls({
             ⏩
           </button>
 
-          <div style={{ width: '1px', height: '24px', background: 'var(--border-panel)', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '16px', background: 'var(--border-panel)', margin: '0 2px' }} />
 
           {SPEED_OPTIONS.map((opt) => (
             <button
@@ -175,7 +175,7 @@ export default function TimeControls({
             </button>
           ))}
 
-          <div style={{ width: '1px', height: '24px', background: 'var(--border-panel)', margin: '0 4px' }} />
+          <div style={{ width: '1px', height: '16px', background: 'var(--border-panel)', margin: '0 2px' }} />
 
           <button className="btn btn-sm" onClick={handleNow} id="btn-now" style={{ color: 'var(--accent-warm)' }}>
             ⏱ Now

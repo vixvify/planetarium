@@ -187,6 +187,7 @@ interface SkyDomeProps {
   coveLight?: boolean;
   coveColor?: string;
   wallLight?: boolean;
+  projectorTilt?: number;
 }
 
 const DOME_RADIUS = 80;
@@ -210,6 +211,7 @@ export default function SkyDome({
   coveLight = true,
   coveColor = "#aa00ff",
   wallLight = true,
+  projectorTilt = 0,
 }: SkyDomeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
@@ -259,6 +261,9 @@ export default function SkyDome({
     isDragging: boolean;
     lastMouseX: number;
     lastMouseY: number;
+    dumbbellGroup: THREE.Group;
+    targetProjectorTilt: number;
+    currentProjectorTilt: number;
   } | null>(null);
 
   const simulationDateRef = useRef(simulationDate);
@@ -549,10 +554,10 @@ export default function SkyDome({
       const legPivot = new THREE.Group();
       legPivot.rotation.y = (i * Math.PI) / 2 + Math.PI / 4;
       const legMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.4, 0.8, 9, 16),
+        new THREE.CylinderGeometry(0.4, 0.8, 13, 16),
         projFrameMat,
       );
-      legMesh.position.set(3.5, 4.5, 0);
+      legMesh.position.set(3.5, 6.5, 0);
       legMesh.rotation.z = Math.PI / 10; // Lean in
       legPivot.add(legMesh);
       standGroup.add(legPivot);
@@ -563,12 +568,12 @@ export default function SkyDome({
       new THREE.CylinderGeometry(4.2, 3.5, 2.5, 32),
       projBaseMat,
     );
-    collar.position.y = 9.0;
+    collar.position.y = 13.0;
     standGroup.add(collar);
 
     // U-shaped Fork / Arms
     const forkGroup = new THREE.Group();
-    forkGroup.position.y = 10.25;
+    forkGroup.position.y = 14.25;
     const forkBase = new THREE.Mesh(
       new THREE.CylinderGeometry(2.8, 4.2, 1.2, 32),
       projFrameMat,
@@ -595,7 +600,7 @@ export default function SkyDome({
 
     // 3. Dumbbell axis (The main tiltable structure)
     const dumbbell = new THREE.Group();
-    dumbbell.position.set(0, 16.25, 0); // Aligns with the fork joints
+    dumbbell.position.set(0, 20.25, 0); // Aligns with the fork joints
     dumbbell.rotation.x = Math.PI / 2; // Lies perfectly horizontal
 
     // Cross-axis connecting to forks
@@ -617,6 +622,24 @@ export default function SkyDome({
     );
     dumbbell.add(coreCenter);
     dumbbell.add(coreRing);
+
+    // Side lamps on the central axis
+    const lampGeo = new THREE.SphereGeometry(1.2, 16, 16);
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0xffeedd,
+      emissive: 0xffaa55,
+      emissiveIntensity: 2.0,
+      roughness: 0.2,
+    });
+    for (const side of [-1, 1]) {
+      const lamp = new THREE.Mesh(lampGeo, lampMat);
+      lamp.position.set(side * 5.8, 0, 0); // At the ends of the cross axis
+      dumbbell.add(lamp);
+
+      const lampLight = new THREE.PointLight(0xffaa55, 1.5, 20);
+      lampLight.position.set(side * 6.2, 0, 0);
+      dumbbell.add(lampLight);
+    }
 
     // Planetary projectors ring (The wide halo ring)
     const planetRingGeo = new THREE.TorusGeometry(6.5, 0.2, 8, 64);
@@ -828,7 +851,7 @@ export default function SkyDome({
     scene.add(centerFill);
     roomLights.push(centerFill);
 
-    return { roomLights, wallLights, ambient, hemi };
+    return { roomLights, wallLights, ambient, hemi, dumbbell };
   }, []);
 
   useEffect(() => {
@@ -1003,7 +1026,7 @@ export default function SkyDome({
     dome.position.y = 0;
     scene.add(dome);
 
-    const { roomLights, wallLights, ambient, hemi } = buildInterior(scene);
+    const { roomLights, wallLights, ambient, hemi, dumbbell } = buildInterior(scene);
 
     const starCount = STARS.length;
     const starPositions = new Float32Array(starCount * 3);
@@ -1198,6 +1221,9 @@ export default function SkyDome({
       isDragging,
       lastMouseX,
       lastMouseY,
+      dumbbellGroup: dumbbell,
+      targetProjectorTilt: projectorTilt,
+      currentProjectorTilt: projectorTilt,
     };
 
     const handleResize = () => {
@@ -1270,6 +1296,12 @@ export default function SkyDome({
       s.wallLights.forEach((wl) => {
         wl.intensity = wallIntensity * 40.0;
       });
+
+      // Projector Tilt Smooth Animation
+      if (Math.abs(s.currentProjectorTilt - s.targetProjectorTilt) > 0.001) {
+        s.currentProjectorTilt += (s.targetProjectorTilt - s.currentProjectorTilt) * Math.min(1.0, dt * 2.0);
+      }
+      s.dumbbellGroup.rotation.x = Math.PI / 2 + (s.currentProjectorTilt * Math.PI) / 180;
 
       const currentMat = s.dome.material as any;
       if (currentMat.uniforms && currentMat.uniforms.uCoveIntensity) {
@@ -1778,6 +1810,12 @@ export default function SkyDome({
       currentMat.uniforms.uCoveColor.value.copy(color);
     }
   }, [coveLight, coveColor, appMode, wallLight]);
+
+  useEffect(() => {
+    if (sceneRef.current) {
+      sceneRef.current.targetProjectorTilt = projectorTilt;
+    }
+  }, [projectorTilt]);
 
   return (
     <div

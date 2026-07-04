@@ -855,9 +855,9 @@ export default function SkyDome({
 
     const seatAngle = Math.PI * 1.25; // Sit between W and S (South-West quadrant)
     const seatRadius = 55;
-    const camX = Math.cos(seatAngle) * seatRadius;
-    const camY = FLOOR_Y + 5.5; // Lowered eye level to simulate sitting
-    const camZ = Math.sin(seatAngle) * seatRadius;
+    let camX = Math.cos(seatAngle) * seatRadius;
+    let camY = FLOOR_Y + 5.5; // Lowered eye level to simulate sitting
+    let camZ = Math.sin(seatAngle) * seatRadius;
     camera.position.set(camX, camY, camZ);
 
     const initYaw = Math.atan2(-camZ, -camX);
@@ -944,6 +944,24 @@ export default function SkyDome({
       passive: false,
     });
     renderer.domElement.addEventListener("touchend", onTouchEnd);
+
+    const keys = { w: false, a: false, s: false, d: false };
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Ignore if focus is in an input
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+      const key = e.key.toLowerCase();
+      if (keys.hasOwnProperty(key)) {
+        keys[key as keyof typeof keys] = true;
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (keys.hasOwnProperty(key)) {
+        keys[key as keyof typeof keys] = false;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
 
     const domeGeo = new THREE.SphereGeometry(
       DOME_RADIUS,
@@ -1577,6 +1595,39 @@ export default function SkyDome({
       s.targetPitch = targetPitch;
       s.targetFov = targetFov;
 
+      let moveForward = 0;
+      let moveRight = 0;
+      if (keys.w) moveForward += 1;
+      if (keys.s) moveForward -= 1;
+      if (keys.a) moveRight -= 1;
+      if (keys.d) moveRight += 1;
+
+      if (moveForward !== 0 || moveRight !== 0) {
+        const speed = 30.0 * dt; // units per second
+        
+        // Normalize movement vector for diagonal movement
+        const length = Math.sqrt(moveForward * moveForward + moveRight * moveRight);
+        moveForward /= length;
+        moveRight /= length;
+
+        const forwardX = Math.cos(camYaw);
+        const forwardZ = Math.sin(camYaw);
+        const rightX = Math.cos(camYaw + Math.PI / 2);
+        const rightZ = Math.sin(camYaw + Math.PI / 2);
+
+        camX += (forwardX * moveForward + rightX * moveRight) * speed;
+        camZ += (forwardZ * moveForward + rightZ * moveRight) * speed;
+        
+        const dist = Math.sqrt(camX * camX + camZ * camZ);
+        const maxDist = ROOM_RADIUS - 2;
+        if (dist > maxDist) {
+          camX = (camX / dist) * maxDist;
+          camZ = (camZ / dist) * maxDist;
+        }
+
+        s.camera.position.set(camX, camY, camZ);
+      }
+
       const currentFov = s.camera.fov;
       const newFov = currentFov + (targetFov - currentFov) * 0.1;
       if (Math.abs(newFov - currentFov) > 0.01) {
@@ -1600,6 +1651,8 @@ export default function SkyDome({
       renderer.domElement.removeEventListener("touchstart", onTouchStart);
       renderer.domElement.removeEventListener("touchmove", onTouchMove);
       renderer.domElement.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
       if (sceneRef.current) {
         cancelAnimationFrame(sceneRef.current.animationId);
       }

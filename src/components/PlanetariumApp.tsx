@@ -29,8 +29,8 @@ export default function PlanetariumApp() {
   const [coveLight, setCoveLight] = useState<boolean>(true);
   const [coveColor, setCoveColor] = useState<string>("#aa00ff");
   const [wallLight, setWallLight] = useState<boolean>(true);
-  const [projectorTilt, setProjectorTilt] = useState<number>(0);
   const [appMode, setAppMode] = useState<"lobby" | "sky" | "movie">("sky");
+  const [isSlewing, setIsSlewing] = useState<boolean>(false);
 
   const simulationDateRef = useRef(simulationDate);
   const playbackSpeedRef = useRef(playbackSpeed);
@@ -147,7 +147,7 @@ export default function PlanetariumApp() {
         coveLight={coveLight}
         coveColor={coveColor}
         wallLight={wallLight}
-        projectorTilt={projectorTilt}
+        onSlewingChange={setIsSlewing}
       />
 
       <div className="planetarium-overlay">
@@ -168,36 +168,6 @@ export default function PlanetariumApp() {
                 {latitude.toFixed(2)}°N {longitude.toFixed(2)}°E
               </div>
             </div>
-          </div>
-        </div>
-
-        <div
-          className="glass-panel"
-          style={{
-            position: "absolute",
-            bottom: "120px",
-            right: "20px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-            animation: "fadeIn 0.6s ease 0.4s both",
-            padding: "10px 16px",
-          }}
-        >
-          <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-dim)", margin: 0, letterSpacing: "1px" }}>
-            PROJECTOR TILT
-          </label>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>-90°</span>
-            <input
-              type="range"
-              min="-90"
-              max="90"
-              value={projectorTilt}
-              onChange={(e) => setProjectorTilt(Number(e.target.value))}
-              style={{ width: "120px", cursor: "pointer" }}
-            />
-            <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>+90°</span>
           </div>
         </div>
 
@@ -379,20 +349,47 @@ export default function PlanetariumApp() {
             </button>
           ))}
         </div>
-
-        {appMode === "movie" && isVideo && mediaEl && <VideoControls video={mediaEl as HTMLVideoElement} />}
-
-        {appMode === "sky" && (
-          <TimeControls
-            simulationDate={simulationDate}
-            onDateChange={handleDateChange}
-            playbackSpeed={playbackSpeed}
-            onSpeedChange={handleSpeedChange}
-            isPlaying={isPlaying}
-            onTogglePlay={handleTogglePlay}
-          />
-        )}
       </div>
+
+      {appMode === "movie" && isVideo && mediaEl && <VideoControls video={mediaEl as HTMLVideoElement} />}
+
+      {appMode === "sky" && (
+        <TimeControls
+          simulationDate={simulationDate}
+          onDateChange={handleDateChange}
+          playbackSpeed={playbackSpeed}
+          onSpeedChange={handleSpeedChange}
+          isPlaying={isPlaying}
+          onTogglePlay={handleTogglePlay}
+        />
+      )}
+
+      {isSlewing && (
+        <div
+          style={{
+            position: "absolute",
+            top: "20px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(10, 15, 20, 0.9)",
+            padding: "8px 24px",
+            borderRadius: "20px",
+            border: "1px solid var(--accent)",
+            color: "var(--accent)",
+            fontSize: "14px",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.8)",
+            zIndex: 1000,
+            pointerEvents: "none",
+          }}
+        >
+          <span style={{ fontSize: "16px" }}>⚙️</span>
+          กำลังหมุนปรับตำแหน่งเครื่องฉาย (Slewing) ...
+        </div>
+      )}
     </div>
   );
 }

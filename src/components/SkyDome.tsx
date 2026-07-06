@@ -548,54 +548,68 @@ export default function SkyDome({
     });
 
     const standGroup = new THREE.Group();
-
-    // 4 Slanted Legs
-    for (let i = 0; i < 4; i++) {
-      const legPivot = new THREE.Group();
-      legPivot.rotation.y = (i * Math.PI) / 2 + Math.PI / 4;
-      const legMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.4, 0.8, 13, 16),
-        projFrameMat,
-      );
-      legMesh.position.set(3.5, 6.5, 0);
-      legMesh.rotation.z = Math.PI / 10; // Lean in
-      legPivot.add(legMesh);
-      standGroup.add(legPivot);
-    }
-
-    // Central Collar/Mount
-    const collar = new THREE.Mesh(
-      new THREE.CylinderGeometry(4.2, 3.5, 2.5, 32),
-      projBaseMat,
-    );
-    collar.position.y = 13.0;
-    standGroup.add(collar);
-
-    // U-shaped Fork / Arms
-    const forkGroup = new THREE.Group();
-    forkGroup.position.y = 14.25;
-    const forkBase = new THREE.Mesh(
-      new THREE.CylinderGeometry(2.8, 4.2, 1.2, 32),
-      projFrameMat,
-    );
-    forkGroup.add(forkBase);
+    const legLength = 22; // Reach to y=20.25 from floor
 
     for (const side of [-1, 1]) {
-      const arm = new THREE.Mesh(
-        new THREE.BoxGeometry(1.8, 6.5, 4),
-        projFrameMat,
+      const sideGroup = new THREE.Group();
+      sideGroup.position.set(side * 6.0, 20.25, 0); // Top joint position
+
+      // Front leg
+      const frontLeg = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.5, 0.9, legLength, 16),
+        projFrameMat
       );
-      arm.position.set(side * 4.0, 3.25, 0);
+      frontLeg.position.set(side * 1.5, -10.125, 3.5);
+      frontLeg.rotation.x = -0.3; // flare out in Z
+      frontLeg.rotation.z = side * 0.15; // flare out in X
+      sideGroup.add(frontLeg);
+
+      // Back leg
+      const backLeg = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.5, 0.9, legLength, 16),
+        projFrameMat
+      );
+      backLeg.position.set(side * 1.5, -10.125, -3.5);
+      backLeg.rotation.x = 0.3;
+      backLeg.rotation.z = side * 0.15;
+      sideGroup.add(backLeg);
+
+      // Top joint enclosure
       const joint = new THREE.Mesh(
-        new THREE.CylinderGeometry(2.2, 2.2, 2.2, 32),
-        projBaseMat,
+        new THREE.CylinderGeometry(2.2, 2.2, 2.5, 32),
+        projBaseMat
       );
-      joint.rotation.z = Math.PI / 2;
-      joint.position.set(side * 4.0, 6.0, 0);
-      forkGroup.add(arm);
-      forkGroup.add(joint);
+      joint.rotation.x = Math.PI / 2;
+      sideGroup.add(joint);
+      
+      // Lamps on top of the stand
+      const lampGroup = new THREE.Group();
+      lampGroup.position.set(0, 3.0, 0); // Sit on top of the joint
+
+      const lampBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.0, 1.5, 1.0, 16),
+        projDetailMat
+      );
+      lampGroup.add(lampBase);
+
+      const lampGeo = new THREE.SphereGeometry(1.2, 16, 16);
+      const lampMat = new THREE.MeshStandardMaterial({
+        color: 0xffeedd,
+        emissive: 0xffaa55,
+        emissiveIntensity: 2.0,
+        roughness: 0.2,
+      });
+      const lamp = new THREE.Mesh(lampGeo, lampMat);
+      lamp.position.y = 1.0;
+      lampGroup.add(lamp);
+
+      const lampLight = new THREE.PointLight(0xffaa55, 1.5, 20);
+      lampLight.position.y = 1.0;
+      lampGroup.add(lampLight);
+
+      sideGroup.add(lampGroup);
+      standGroup.add(sideGroup);
     }
-    standGroup.add(forkGroup);
     projectorGroup.add(standGroup);
 
     // 3. Dumbbell axis (The main tiltable structure)
@@ -605,7 +619,7 @@ export default function SkyDome({
 
     // Cross-axis connecting to forks
     const crossAxis = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.4, 1.4, 10.5, 32),
+      new THREE.CylinderGeometry(1.4, 1.4, 12.5, 32),
       projDetailMat,
     );
     crossAxis.rotation.z = Math.PI / 2;
@@ -622,24 +636,6 @@ export default function SkyDome({
     );
     dumbbell.add(coreCenter);
     dumbbell.add(coreRing);
-
-    // Side lamps on the central axis
-    const lampGeo = new THREE.SphereGeometry(1.2, 16, 16);
-    const lampMat = new THREE.MeshStandardMaterial({
-      color: 0xffeedd,
-      emissive: 0xffaa55,
-      emissiveIntensity: 2.0,
-      roughness: 0.2,
-    });
-    for (const side of [-1, 1]) {
-      const lamp = new THREE.Mesh(lampGeo, lampMat);
-      lamp.position.set(side * 5.8, 0, 0); // At the ends of the cross axis
-      dumbbell.add(lamp);
-
-      const lampLight = new THREE.PointLight(0xffaa55, 1.5, 20);
-      lampLight.position.set(side * 6.2, 0, 0);
-      dumbbell.add(lampLight);
-    }
 
     // Planetary projectors ring (The wide halo ring)
     const planetRingGeo = new THREE.TorusGeometry(6.5, 0.2, 8, 64);

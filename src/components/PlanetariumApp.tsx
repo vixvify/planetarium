@@ -21,7 +21,9 @@ export default function PlanetariumApp() {
   const [longitude] = useState<number>(DEFAULT_LON);
   const [isLoaded, setIsLoaded] = useState(false);
   const [mediaSrc, setMediaSrc] = useState<string | null>(null);
-  const [mediaEl, setMediaEl] = useState<HTMLVideoElement | HTMLImageElement | null>(null);
+  const [mediaEl, setMediaEl] = useState<
+    HTMLVideoElement | HTMLImageElement | null
+  >(null);
   const [isVideo, setIsVideo] = useState<boolean>(false);
   const [videoFormat, setVideoFormat] = useState<"fisheye" | "equirectangular">(
     "fisheye",
@@ -76,7 +78,7 @@ export default function PlanetariumApp() {
       const file = e.target.files[0];
       const url = URL.createObjectURL(file);
       setMediaSrc(url);
-      if (file.type.startsWith('video/')) {
+      if (file.type.startsWith("video/")) {
         setIsVideo(true);
       } else {
         setIsVideo(false);
@@ -92,12 +94,23 @@ export default function PlanetariumApp() {
     setMediaEl(null);
   };
 
-  const onMediaRef = useCallback((node: HTMLVideoElement | HTMLImageElement | null) => {
-    setMediaEl(node);
-  }, []);
+  const onMediaRef = useCallback(
+    (node: HTMLVideoElement | HTMLImageElement | null) => {
+      setMediaEl(node);
+    },
+    [],
+  );
 
   const handleDateChange = useCallback((date: Date) => {
     setSimulationDate(date);
+  }, []);
+
+  const handleModeChange = useCallback((mode: "lobby" | "sky" | "movie") => {
+    setAppMode(mode);
+    if (mode === "movie") {
+      setCoveLight(false);
+      setWallLight(false);
+    }
   }, []);
 
   const handleSpeedChange = useCallback((speed: number) => {
@@ -331,7 +344,7 @@ export default function PlanetariumApp() {
           {(["lobby", "sky", "movie"] as const).map((mode) => (
             <button
               key={mode}
-              onClick={() => setAppMode(mode)}
+              onClick={() => handleModeChange(mode)}
               style={{
                 background: appMode === mode ? "var(--accent)" : "transparent",
                 color: appMode === mode ? "black" : "white",
@@ -351,7 +364,9 @@ export default function PlanetariumApp() {
         </div>
       </div>
 
-      {appMode === "movie" && isVideo && mediaEl && <VideoControls video={mediaEl as HTMLVideoElement} />}
+      {appMode === "movie" && isVideo && mediaEl && (
+        <VideoControls video={mediaEl as HTMLVideoElement} />
+      )}
 
       {appMode === "sky" && (
         <TimeControls

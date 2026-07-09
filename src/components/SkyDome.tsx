@@ -116,6 +116,36 @@ void main() {
 }
 `;
 
+const FADE_VERTEX_SHADER = `
+varying vec3 vWorldDirection;
+void main() {
+  vec4 worldPos = modelMatrix * vec4(position, 1.0);
+  vWorldDirection = normalize(worldPos.xyz);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const FADE_FRAGMENT_SHADER = `
+uniform float uOpacity;
+uniform vec3 uCoveColor;
+uniform float uCoveIntensity;
+varying vec3 vWorldDirection;
+
+void main() {
+  vec3 dir = normalize(vWorldDirection);
+  float h = max(dir.y, 0.0);
+  
+  // Base color is black to obscure the video/sky
+  vec3 baseColor = vec3(0.005, 0.005, 0.01);
+  
+  // Cove Light Effect (identical to other shaders)
+  float coveFade = exp(-h * 3.5);
+  baseColor += uCoveColor * coveFade * (uCoveIntensity * 2.5);
+  
+  gl_FragColor = vec4(baseColor, uOpacity);
+}
+`;
+
 const FISHEYE_VERTEX_SHADER = `
 varying vec3 vWorldDirection;
 void main() {
@@ -276,7 +306,7 @@ export default function SkyDome({
   const lonRef = useRef(longitude);
   const showConstellationsRef = useRef(showConstellations);
   const showLabelsRef = useRef(showLabels);
-  const showArtRef = useRef(showArt);
+  const wallLightRef = useRef(wallLight);
   const prevModeRef = useRef(appMode);
   const mediaElementRef = useRef(mediaElement);
 
@@ -285,7 +315,7 @@ export default function SkyDome({
   lonRef.current = longitude;
   showConstellationsRef.current = showConstellations;
   showLabelsRef.current = showLabels;
-  showArtRef.current = showArt;
+  wallLightRef.current = wallLight;
   mediaElementRef.current = mediaElement;
 
   const createGlowTexture = useCallback((color: string, size: number = 128) => {
@@ -420,10 +450,91 @@ export default function SkyDome({
       scene.add(aisle);
     }
 
+    const maxSeats = 500;
+
+    const backGeo = new THREE.BoxGeometry(2.4, 3.2, 0.4);
+    backGeo.rotateX(-0.35);
+    backGeo.translate(0, 2.6, -1.0);
+    const imBack = new THREE.InstancedMesh(
+      backGeo,
+      seatCushionMaterial,
+      maxSeats,
+    );
+
+    const headrestGeo = new THREE.CylinderGeometry(0.35, 0.35, 2.2, 16);
+    headrestGeo.rotateZ(Math.PI / 2);
+    headrestGeo.translate(0, 4.3, -1.6);
+    const imHeadrest = new THREE.InstancedMesh(
+      headrestGeo,
+      seatCushionMaterial,
+      maxSeats,
+    );
+
+    const cushionGeo = new THREE.BoxGeometry(2.4, 0.5, 2.2);
+    cushionGeo.rotateX(0.1);
+    cushionGeo.translate(0, 1.3, 0.0);
+    const imCushion = new THREE.InstancedMesh(
+      cushionGeo,
+      seatCushionMaterial,
+      maxSeats,
+    );
+
+    const kneeGeo = new THREE.CylinderGeometry(0.25, 0.25, 2.4, 16);
+    kneeGeo.rotateZ(Math.PI / 2);
+    kneeGeo.translate(0, 1.28, 1.1);
+    const imKnee = new THREE.InstancedMesh(
+      kneeGeo,
+      seatCushionMaterial,
+      maxSeats,
+    );
+
+    const pillarGeo = new THREE.CylinderGeometry(0.6, 0.8, 1.3, 16);
+    pillarGeo.translate(0, 0.65, -0.2);
+    const imPillar = new THREE.InstancedMesh(pillarGeo, seatMaterial, maxSeats);
+
+    const armGeoL = new THREE.BoxGeometry(0.4, 0.2, 2.5);
+    armGeoL.rotateX(0.05);
+    armGeoL.translate(-1.45, 1.9, 0.2);
+    const imArmL = new THREE.InstancedMesh(armGeoL, seatMaterial, maxSeats);
+
+    const armGeoR = new THREE.BoxGeometry(0.4, 0.2, 2.5);
+    armGeoR.rotateX(0.05);
+    armGeoR.translate(1.45, 1.9, 0.2);
+    const imArmR = new THREE.InstancedMesh(armGeoR, seatMaterial, maxSeats);
+
+    const supportGeoL = new THREE.CylinderGeometry(0.1, 0.1, 1.0, 8);
+    supportGeoL.translate(-1.45, 1.4, 0.5);
+    const imSupportL = new THREE.InstancedMesh(
+      supportGeoL,
+      metalMaterial,
+      maxSeats,
+    );
+
+    const supportGeoR = new THREE.CylinderGeometry(0.1, 0.1, 1.0, 8);
+    supportGeoR.translate(1.45, 1.4, 0.5);
+    const imSupportR = new THREE.InstancedMesh(
+      supportGeoR,
+      metalMaterial,
+      maxSeats,
+    );
+
+    const panelGeoL = new THREE.BoxGeometry(0.15, 2.2, 2.0);
+    panelGeoL.rotateX(-0.2);
+    panelGeoL.translate(-1.6, 1.6, -0.4);
+    const imPanelL = new THREE.InstancedMesh(panelGeoL, seatMaterial, maxSeats);
+
+    const panelGeoR = new THREE.BoxGeometry(0.15, 2.2, 2.0);
+    panelGeoR.rotateX(-0.2);
+    panelGeoR.translate(1.6, 1.6, -0.4);
+    const imPanelR = new THREE.InstancedMesh(panelGeoR, seatMaterial, maxSeats);
+
+    let seatIndex = 0;
+    const seatDummy = new THREE.Object3D();
+
     for (let row = 0; row < SEAT_ROWS; row++) {
       const rowRadius = 20 + row * 7;
       const seatCount = Math.floor(16 + row * 10);
-      const rowY = FLOOR_Y + 0.5; // All seats at the same level
+      const rowY = FLOOR_Y + 0.5;
       const angleStep = (Math.PI * 2) / seatCount;
 
       for (let s = 0; s < seatCount; s++) {
@@ -432,76 +543,54 @@ export default function SkyDome({
         const aisleAngle = angle % (Math.PI / 2);
         if (aisleAngle < 0.15 || aisleAngle > Math.PI / 2 - 0.15) continue;
 
-        const seatGroup = new THREE.Group();
-        seatGroup.position.set(
+        seatDummy.position.set(
           Math.cos(angle) * rowRadius,
           rowY,
           Math.sin(angle) * rowRadius,
         );
+        seatDummy.lookAt(0, rowY, 0);
+        seatDummy.updateMatrix();
 
-        seatGroup.lookAt(0, rowY, 0);
-
-        // Backrest (reclined)
-        const backGeo = new THREE.BoxGeometry(2.4, 3.2, 0.4);
-        const back = new THREE.Mesh(backGeo, seatCushionMaterial);
-        back.position.set(0, 2.6, -1.0);
-        back.rotation.x = -0.35; // Reclined for dome viewing
-        seatGroup.add(back);
-
-        // Headrest
-        const headrestGeo = new THREE.CylinderGeometry(0.35, 0.35, 2.2, 16);
-        const headrest = new THREE.Mesh(headrestGeo, seatCushionMaterial);
-        headrest.rotation.z = Math.PI / 2;
-        headrest.position.set(0, 4.3, -1.6); // Attached to top of backrest
-        seatGroup.add(headrest);
-
-        // Seat Pan / Cushion
-        const cushionGeo = new THREE.BoxGeometry(2.4, 0.5, 2.2);
-        const cushion = new THREE.Mesh(cushionGeo, seatCushionMaterial);
-        cushion.position.set(0, 1.3, 0.0);
-        cushion.rotation.x = 0.1; // Tilted up slightly at the knees
-        seatGroup.add(cushion);
-
-        // Knee Roll (rounded front edge)
-        const kneeGeo = new THREE.CylinderGeometry(0.25, 0.25, 2.4, 16);
-        const knee = new THREE.Mesh(kneeGeo, seatCushionMaterial);
-        knee.rotation.z = Math.PI / 2;
-        knee.position.set(0, 1.28, 1.1);
-        seatGroup.add(knee);
-
-        // Base Pillar
-        const pillarGeo = new THREE.CylinderGeometry(0.6, 0.8, 1.3, 16);
-        const pillar = new THREE.Mesh(pillarGeo, seatMaterial);
-        pillar.position.set(0, 0.65, -0.2);
-        seatGroup.add(pillar);
-
-        // Armrests & Side Panels
-        const armGeo = new THREE.BoxGeometry(0.4, 0.2, 2.5);
-        const supportGeo = new THREE.CylinderGeometry(0.1, 0.1, 1.0, 8);
-        const panelGeo = new THREE.BoxGeometry(0.15, 2.2, 2.0);
-        
-        for (const side of [-1, 1]) {
-          // Top padded armrest
-          const arm = new THREE.Mesh(armGeo, seatMaterial);
-          arm.position.set(side * 1.45, 1.9, 0.2);
-          arm.rotation.x = 0.05;
-          seatGroup.add(arm);
-
-          // Support pillar for armrest
-          const support = new THREE.Mesh(supportGeo, metalMaterial);
-          support.position.set(side * 1.45, 1.4, 0.5);
-          seatGroup.add(support);
-          
-          // Sleek side enclosure panel (cinema style)
-          const panel = new THREE.Mesh(panelGeo, seatMaterial);
-          panel.position.set(side * 1.6, 1.6, -0.4);
-          panel.rotation.x = -0.2;
-          seatGroup.add(panel);
-        }
-
-        scene.add(seatGroup);
+        imBack.setMatrixAt(seatIndex, seatDummy.matrix);
+        imHeadrest.setMatrixAt(seatIndex, seatDummy.matrix);
+        imCushion.setMatrixAt(seatIndex, seatDummy.matrix);
+        imKnee.setMatrixAt(seatIndex, seatDummy.matrix);
+        imPillar.setMatrixAt(seatIndex, seatDummy.matrix);
+        imArmL.setMatrixAt(seatIndex, seatDummy.matrix);
+        imArmR.setMatrixAt(seatIndex, seatDummy.matrix);
+        imSupportL.setMatrixAt(seatIndex, seatDummy.matrix);
+        imSupportR.setMatrixAt(seatIndex, seatDummy.matrix);
+        imPanelL.setMatrixAt(seatIndex, seatDummy.matrix);
+        imPanelR.setMatrixAt(seatIndex, seatDummy.matrix);
+        seatIndex++;
       }
     }
+
+    imBack.count = seatIndex;
+    imHeadrest.count = seatIndex;
+    imCushion.count = seatIndex;
+    imKnee.count = seatIndex;
+    imPillar.count = seatIndex;
+    imArmL.count = seatIndex;
+    imArmR.count = seatIndex;
+    imSupportL.count = seatIndex;
+    imSupportR.count = seatIndex;
+    imPanelL.count = seatIndex;
+    imPanelR.count = seatIndex;
+
+    scene.add(
+      imBack,
+      imHeadrest,
+      imCushion,
+      imKnee,
+      imPillar,
+      imArmL,
+      imArmR,
+      imSupportL,
+      imSupportR,
+      imPanelL,
+      imPanelR,
+    );
 
     const platformGeo = new THREE.CylinderGeometry(15, 15, 1.5, 64);
     const platform = new THREE.Mesh(platformGeo, metalMaterial);
@@ -562,7 +651,7 @@ export default function SkyDome({
       // Front leg
       const frontLeg = new THREE.Mesh(
         new THREE.CylinderGeometry(0.5, 0.9, legLength, 16),
-        projFrameMat
+        projFrameMat,
       );
       frontLeg.position.set(side * 1.5, -10.125, 3.5);
       frontLeg.rotation.x = -0.3; // flare out in Z
@@ -572,7 +661,7 @@ export default function SkyDome({
       // Back leg
       const backLeg = new THREE.Mesh(
         new THREE.CylinderGeometry(0.5, 0.9, legLength, 16),
-        projFrameMat
+        projFrameMat,
       );
       backLeg.position.set(side * 1.5, -10.125, -3.5);
       backLeg.rotation.x = 0.3;
@@ -582,18 +671,18 @@ export default function SkyDome({
       // Top joint enclosure
       const joint = new THREE.Mesh(
         new THREE.CylinderGeometry(2.2, 2.2, 2.5, 32),
-        projBaseMat
+        projBaseMat,
       );
       joint.rotation.x = Math.PI / 2;
       sideGroup.add(joint);
-      
+
       // Lamps on top of the stand
       const lampGroup = new THREE.Group();
       lampGroup.position.set(0, 3.0, 0); // Sit on top of the joint
 
       const lampBase = new THREE.Mesh(
         new THREE.CylinderGeometry(1.0, 1.5, 1.0, 16),
-        projDetailMat
+        projDetailMat,
       );
       lampGroup.add(lampBase);
 
@@ -621,7 +710,7 @@ export default function SkyDome({
     // 3. Gimbal axis (The main tiltable structure for latitude)
     const gimbal = new THREE.Group();
     gimbal.position.set(0, 20.25, 0); // Aligns with the fork joints
-    gimbal.rotation.x = Math.PI / 2; 
+    gimbal.rotation.x = Math.PI / 2;
 
     // Cross-axis connecting to forks
     const crossAxis = new THREE.Mesh(
@@ -703,7 +792,44 @@ export default function SkyDome({
       const sphereMesh = new THREE.Mesh(sphereGeo, projBaseMat);
       sphereGroup.add(sphereMesh);
 
-      // Add large protruding lenses
+      const maxLenses = 500;
+      const imRingGeo = new THREE.CylinderGeometry(0.8, 1.0, 0.7, 16);
+      imRingGeo.rotateX(Math.PI / 2);
+      const imRing = new THREE.InstancedMesh(
+        imRingGeo,
+        projDetailMat,
+        maxLenses,
+      );
+
+      const imBarrelGeo = new THREE.CylinderGeometry(0.6, 0.6, 1.0, 16);
+      imBarrelGeo.rotateX(Math.PI / 2);
+      imBarrelGeo.translate(0, 0, 0.2);
+      const imBarrel = new THREE.InstancedMesh(
+        imBarrelGeo,
+        projFrameMat,
+        maxLenses,
+      );
+
+      const imGlassGeo = new THREE.SphereGeometry(
+        0.55,
+        16,
+        16,
+        0,
+        Math.PI * 2,
+        0,
+        Math.PI / 2,
+      );
+      imGlassGeo.rotateX(Math.PI / 2);
+      imGlassGeo.translate(0, 0, 0.6);
+      const imGlass = new THREE.InstancedMesh(
+        imGlassGeo,
+        projLensMat,
+        maxLenses,
+      );
+
+      let lensCount = 0;
+      const dummy = new THREE.Object3D();
+
       for (let v = 0; v < posAttr.count; v += 3) {
         const vx = posAttr.getX(v),
           vy = posAttr.getY(v),
@@ -712,46 +838,21 @@ export default function SkyDome({
         if (side === 1 && vy < -1.8) continue;
         if (side === -1 && vy > 1.8) continue;
 
-        const portGroup = new THREE.Group();
-        portGroup.position.set(vx, vy, vz);
-        portGroup.lookAt(vx * 2, vy * 2, vz * 2);
+        dummy.position.set(vx, vy, vz);
+        dummy.lookAt(vx * 2, vy * 2, vz * 2);
+        dummy.updateMatrix();
 
-        // Base wide ring
-        const ring = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.8, 1.0, 0.7, 16),
-          projDetailMat,
-        );
-        ring.rotation.x = Math.PI / 2;
-        portGroup.add(ring);
-
-        // Inner protruding barrel
-        const barrel = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.6, 0.6, 1.0, 16),
-          projFrameMat,
-        );
-        barrel.rotation.x = Math.PI / 2;
-        barrel.position.z = 0.2;
-        portGroup.add(barrel);
-
-        // Lens glass
-        const glass = new THREE.Mesh(
-          new THREE.SphereGeometry(
-            0.55,
-            16,
-            16,
-            0,
-            Math.PI * 2,
-            0,
-            Math.PI / 2,
-          ),
-          projLensMat,
-        );
-        glass.position.z = 0.6;
-        glass.rotation.x = Math.PI / 2;
-        portGroup.add(glass);
-
-        sphereGroup.add(portGroup);
+        imRing.setMatrixAt(lensCount, dummy.matrix);
+        imBarrel.setMatrixAt(lensCount, dummy.matrix);
+        imGlass.setMatrixAt(lensCount, dummy.matrix);
+        lensCount++;
       }
+
+      imRing.count = lensCount;
+      imBarrel.count = lensCount;
+      imGlass.count = lensCount;
+
+      sphereGroup.add(imRing, imBarrel, imGlass);
 
       // Mini-spheres (satellite projectors)
       const topMini = new THREE.Group();
@@ -796,7 +897,7 @@ export default function SkyDome({
     const lensMeshes: THREE.Mesh[] = [];
     const digiProjPositions = [
       { x: 0, z: -11.0 }, // Moved inwards from -13.5
-      { x: 0, z: 11.0 },  // Moved inwards from 13.5
+      { x: 0, z: 11.0 }, // Moved inwards from 13.5
     ];
 
     digiProjPositions.forEach((pos) => {
@@ -812,14 +913,23 @@ export default function SkyDome({
         roughness: 0.3,
       });
       // Thick base plate
-      const baseBlock = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.4, 4.0), frameMat);
+      const baseBlock = new THREE.Mesh(
+        new THREE.BoxGeometry(6.4, 0.4, 4.0),
+        frameMat,
+      );
       baseBlock.position.set(0, 0.2, 0); // Sitting on FLOOR_Y + 1.5
       digiGroup.add(baseBlock);
 
       // Thick side pillars
-      const pillarL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 1.2), frameMat);
+      const pillarL = new THREE.Mesh(
+        new THREE.BoxGeometry(0.8, 3.5, 1.2),
+        frameMat,
+      );
       pillarL.position.set(-2.8, 1.95, 0);
-      const pillarR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 1.2), frameMat);
+      const pillarR = new THREE.Mesh(
+        new THREE.BoxGeometry(0.8, 3.5, 1.2),
+        frameMat,
+      );
       pillarR.position.set(2.8, 1.95, 0);
       digiGroup.add(pillarL, pillarR);
 
@@ -827,11 +937,14 @@ export default function SkyDome({
       const aimGroup = new THREE.Group();
       aimGroup.position.set(pos.x, FLOOR_Y + 4.0, pos.z);
       // Look AWAY from the center, towards the dome behind it
-      aimGroup.lookAt(pos.x * 3.0, DOME_RADIUS * 0.9, pos.z * 3.0); 
+      aimGroup.lookAt(pos.x * 3.0, DOME_RADIUS * 0.9, pos.z * 3.0);
 
       // Pivot Axle
       const axleGeo = new THREE.CylinderGeometry(0.3, 0.3, 6.4, 16);
-      const axleMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8 });
+      const axleMat = new THREE.MeshStandardMaterial({
+        color: 0x333333,
+        metalness: 0.8,
+      });
       const axle = new THREE.Mesh(axleGeo, axleMat);
       axle.rotation.z = Math.PI / 2;
       aimGroup.add(axle);
@@ -846,13 +959,13 @@ export default function SkyDome({
       // Main block
       const bodyGeo = new THREE.BoxGeometry(4.2, 2.2, 6.0);
       const body = new THREE.Mesh(bodyGeo, bodyMat);
-      body.position.z = -1.5; 
+      body.position.z = -1.5;
       bodyGroup.add(body);
 
       // Back fan/exhaust block
       const backGeo = new THREE.BoxGeometry(3.6, 1.8, 1.5);
       const backBlock = new THREE.Mesh(backGeo, bodyMat);
-      backBlock.position.z = -5.25; 
+      backBlock.position.z = -5.25;
       bodyGroup.add(backBlock);
 
       // Lens Tube
@@ -864,12 +977,20 @@ export default function SkyDome({
       });
       const lensTube = new THREE.Mesh(lensTubeGeo, lensMat);
       lensTube.rotation.x = Math.PI / 2;
-      lensTube.position.z = 2.0; 
-      lensTube.position.y = 0.4; 
+      lensTube.position.z = 2.0;
+      lensTube.position.y = 0.4;
       bodyGroup.add(lensTube);
 
       // Fisheye Dome on the lens
-      const glassGeo = new THREE.SphereGeometry(0.8, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+      const glassGeo = new THREE.SphereGeometry(
+        0.8,
+        32,
+        16,
+        0,
+        Math.PI * 2,
+        0,
+        Math.PI / 2,
+      );
       const glassMat = new THREE.MeshStandardMaterial({
         color: 0x000000,
         emissive: 0x000000,
@@ -879,14 +1000,23 @@ export default function SkyDome({
       });
       const glass = new THREE.Mesh(glassGeo, glassMat);
       glass.rotation.x = Math.PI / 2;
-      glass.position.z = 3.3; 
+      glass.position.z = 3.3;
       glass.position.y = 0.4;
       bodyGroup.add(glass);
       lensMeshes.push(glass);
 
       // Lens Hood (Half-cylinder scoop acting as a visor under the bottom half of the lens)
       // thetaStart = -Math.PI / 2, thetaLength = Math.PI covers the bottom half
-      const hoodGeo = new THREE.CylinderGeometry(0.85, 0.85, 1.0, 32, 1, true, -Math.PI / 2, Math.PI);
+      const hoodGeo = new THREE.CylinderGeometry(
+        0.85,
+        0.85,
+        1.0,
+        32,
+        1,
+        true,
+        -Math.PI / 2,
+        Math.PI,
+      );
       const hoodMat = new THREE.MeshStandardMaterial({
         color: 0x050505,
         roughness: 0.9,
@@ -931,24 +1061,27 @@ export default function SkyDome({
       sconceGroup.add(fixture);
       scene.add(sconceGroup);
 
-      // Down-firing spotlight, aiming slightly towards the wall base
-      const spotLight = new THREE.SpotLight(
-        0xffebd6,
-        40.0,
-        80,
-        Math.PI / 2.5,
-        0.8,
-        1.0,
-      );
-      spotLight.position.set(x * 0.95, y - 1.0, z * 0.95);
+      // Only add a SpotLight for every 4th sconce to save performance (4 lights total instead of 16)
+      if (i % 4 === 0) {
+        // Down-firing spotlight, aiming slightly towards the wall base
+        const spotLight = new THREE.SpotLight(
+          0xffebd6,
+          160.0, // Compensate for fewer lights
+          100,
+          Math.PI / 2.0, // Wider angle
+          0.8,
+          1.0,
+        );
+        spotLight.position.set(x * 0.95, y - 1.0, z * 0.95);
 
-      const target = new THREE.Object3D();
-      target.position.set(x * 1.0, FLOOR_Y, z * 1.0);
-      scene.add(target);
-      spotLight.target = target;
+        const target = new THREE.Object3D();
+        target.position.set(x * 1.0, FLOOR_Y, z * 1.0);
+        scene.add(target);
+        spotLight.target = target;
 
-      scene.add(spotLight);
-      wallLights.push(spotLight);
+        scene.add(spotLight);
+        wallLights.push(spotLight);
+      }
     }
 
     const ambient = new THREE.AmbientLight(0x2a3a5a, 2.0);
@@ -967,7 +1100,15 @@ export default function SkyDome({
     scene.add(centerFill);
     roomLights.push(centerFill);
 
-    return { roomLights, wallLights, ambient, hemi, gimbal, polarAxis, lensMeshes };
+    return {
+      roomLights,
+      wallLights,
+      ambient,
+      hemi,
+      gimbal,
+      polarAxis,
+      lensMeshes,
+    };
   }, []);
 
   useEffect(() => {
@@ -1087,7 +1228,11 @@ export default function SkyDome({
     const keys = { w: false, a: false, s: false, d: false };
     const onKeyDown = (e: KeyboardEvent) => {
       // Ignore if focus is in an input
-      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA"
+      )
+        return;
       const key = e.key.toLowerCase();
       if (keys.hasOwnProperty(key)) {
         keys[key as keyof typeof keys] = true;
@@ -1142,7 +1287,15 @@ export default function SkyDome({
     dome.position.y = 0;
     scene.add(dome);
 
-    const { roomLights, wallLights, ambient, hemi, gimbal, polarAxis, lensMeshes } = buildInterior(scene);
+    const {
+      roomLights,
+      wallLights,
+      ambient,
+      hemi,
+      gimbal,
+      polarAxis,
+      lensMeshes,
+    } = buildInterior(scene);
 
     const starCount = STARS.length;
     const starPositions = new Float32Array(starCount * 3);
@@ -1273,12 +1426,25 @@ export default function SkyDome({
 
     const clock = new THREE.Clock();
 
-    const fadeGeo = new THREE.SphereGeometry(DOME_RADIUS - 0.5, 64, 32);
-    const fadeMat = new THREE.MeshBasicMaterial({
-      color: 0x000000,
+    const fadeGeo = new THREE.SphereGeometry(
+      DOME_RADIUS - 0.5,
+      64,
+      32,
+      0,
+      Math.PI * 2,
+      0,
+      Math.PI / 2,
+    );
+    const fadeMat = new THREE.ShaderMaterial({
+      vertexShader: FADE_VERTEX_SHADER,
+      fragmentShader: FADE_FRAGMENT_SHADER,
+      uniforms: {
+        uOpacity: { value: 0.0 },
+        uCoveColor: { value: new THREE.Color(coveColor) },
+        uCoveIntensity: { value: coveLight ? 1.5 : 0.0 },
+      },
       side: THREE.BackSide,
       transparent: true,
-      opacity: 0.0,
       depthWrite: false,
     });
     const fadeSphere = new THREE.Mesh(fadeGeo, fadeMat);
@@ -1346,8 +1512,9 @@ export default function SkyDome({
 
     const initialJd = dateToJD(simulationDate);
     const initialLocalST = lst(initialJd, longitude);
-    const initialDiurnal = appMode === "sky" ? -(initialLocalST / 24.0) * Math.PI * 2 : 0;
-    
+    const initialDiurnal =
+      appMode === "sky" ? -(initialLocalST / 24.0) * Math.PI * 2 : 0;
+
     gimbal.rotation.x = Math.PI / 2 + initialDiurnal;
     polarAxis.rotation.y = initialDiurnal * 2.0;
     sceneRef.current.currentDiurnal = initialDiurnal;
@@ -1388,12 +1555,11 @@ export default function SkyDome({
       const date = simulationDateRef.current;
       const lat = latRef.current;
       const lon = lonRef.current;
-      const showConst = showConstellationsRef.current;
-
       const jd = dateToJD(date);
       const localST = lst(jd, lon);
       const dt = Math.min(0.1, s.clock.getDelta());
       const elapsed = s.clock.elapsedTime;
+      const showConst = showConstellationsRef.current;
       const isSky = s.activeMode === "sky";
 
       s.constellationLine.visible = showConst && isSky;
@@ -1408,7 +1574,10 @@ export default function SkyDome({
           Math.min(1.0, dt * 2.0);
       }
 
-      // Wall Light Smooth Fade
+      // Wall Lights
+      s.targetWallLightIntensity =
+        s.activeMode === "sky" ? 0.0 : wallLightRef.current ? 1.0 : 0.0;
+
       if (
         Math.abs(s.currentWallLightIntensity - s.targetWallLightIntensity) >
         0.005
@@ -1420,7 +1589,7 @@ export default function SkyDome({
       const wallIntensity = s.currentWallLightIntensity;
 
       s.wallLights.forEach((wl) => {
-        wl.intensity = wallIntensity * 40.0;
+        wl.intensity = wallIntensity * 160.0;
       });
 
       // Calculate exact diurnal angle
@@ -1436,12 +1605,15 @@ export default function SkyDome({
 
       // Smooth unwrap for diurnal motion when tracking sky
       if (isSky) {
-        while (targetDiurnal - s.currentDiurnal > Math.PI) targetDiurnal -= Math.PI * 2;
-        while (targetDiurnal - s.currentDiurnal < -Math.PI) targetDiurnal += Math.PI * 2;
+        while (targetDiurnal - s.currentDiurnal > Math.PI)
+          targetDiurnal -= Math.PI * 2;
+        while (targetDiurnal - s.currentDiurnal < -Math.PI)
+          targetDiurnal += Math.PI * 2;
       }
 
       // Report slewing state only when parking
-      const isCurrentlySlewing = !isSky && Math.abs(targetDiurnal - s.currentDiurnal) > 0.05;
+      const isCurrentlySlewing =
+        !isSky && Math.abs(targetDiurnal - s.currentDiurnal) > 0.05;
       if (s.isSlewing !== isCurrentlySlewing) {
         s.isSlewing = isCurrentlySlewing;
         if (onSlewingChangeRef.current) {
@@ -1449,23 +1621,18 @@ export default function SkyDome({
         }
       }
 
-      if (isSky) {
-        // Snap directly to the exact position to track the sky in real-time
-        s.currentDiurnal = targetDiurnal;
-      } else {
-        // Apply slow, smooth mechanical speed limit when parking
-        const maxMechSpeed = 0.05; // radians per second (very slow and heavy)
-        let step = (targetDiurnal - s.currentDiurnal) * dt * 0.2;
-        if (Math.abs(step) > maxMechSpeed * dt) {
-          step = Math.sign(step) * maxMechSpeed * dt;
-        }
-        s.currentDiurnal += step;
+      // Always apply slow, smooth mechanical speed limit when tracking or parking
+      const maxMechSpeed = 0.05; // radians per second (very slow and heavy)
+      let step = (targetDiurnal - s.currentDiurnal) * dt * 0.2;
+      if (Math.abs(step) > maxMechSpeed * dt) {
+        step = Math.sign(step) * maxMechSpeed * dt;
       }
-      
+      s.currentDiurnal += step;
+
       // Horizontal is Math.PI/2, plus tumbling tilt
       const targetGimbalRot = Math.PI / 2 + s.currentDiurnal;
       s.gimbalGroup.rotation.x = targetGimbalRot;
-      
+
       // We can also spin the polar axis slightly for extra mechanical effect
       s.polarAxisGroup.rotation.y = s.currentDiurnal * 2.0;
 
@@ -1474,27 +1641,34 @@ export default function SkyDome({
         currentMat.uniforms.uCoveIntensity.value = s.currentCoveIntensity;
       }
 
+      const fadeMat = s.fadeSphere.material as THREE.ShaderMaterial;
+      if (fadeMat.uniforms && fadeMat.uniforms.uCoveIntensity) {
+        fadeMat.uniforms.uCoveIntensity.value = s.currentCoveIntensity;
+      }
+
       // Mode Transition Fading
       if (s.transitionState === "fading_out") {
-        const mat = s.fadeSphere.material as THREE.Material;
-        mat.opacity += 2.0 * dt; // 0.5s fade to black
-        if (mat.opacity >= 1.0) {
-          mat.opacity = 1.0;
+        const mat = s.fadeSphere.material as THREE.ShaderMaterial;
+        mat.uniforms.uOpacity.value += 2.0 * dt; // 0.5s fade to black
+        if (mat.uniforms.uOpacity.value >= 1.0) {
+          mat.uniforms.uOpacity.value = 1.0;
           s.transitionState = "fading_in";
 
           s.dome.material = s.pendingMaterial;
           s.activeMode = s.pendingMode;
-          const isSkyMode = s.pendingMode === "sky";
-          s.stars.visible = isSkyMode;
-          s.sunSprite.visible = isSkyMode;
-          s.moonSprite.visible = isSkyMode;
-          s.constellationLine.visible = showConst && isSkyMode;
+          // Apply instant visibilities
+          const isSkyModeNow = s.activeMode === "sky";
+          s.stars.visible = isSkyModeNow;
+          s.sunSprite.visible = isSkyModeNow;
+          s.moonSprite.visible = isSkyModeNow;
+          s.constellationLine.visible =
+            showConstellationsRef.current && isSkyModeNow;
         }
       } else if (s.transitionState === "fading_in") {
-        const mat = s.fadeSphere.material as THREE.Material;
-        mat.opacity -= 2.0 * dt; // 0.5s fade from black
-        if (mat.opacity <= 0.0) {
-          mat.opacity = 0.0;
+        const mat = s.fadeSphere.material as THREE.ShaderMaterial;
+        mat.uniforms.uOpacity.value -= 2.0 * dt; // 0.5s fade from black
+        if (mat.uniforms.uOpacity.value <= 0.0) {
+          mat.uniforms.uOpacity.value = 0.0;
           s.transitionState = "idle";
         }
       }
@@ -1516,7 +1690,7 @@ export default function SkyDome({
       }
       s.starGeometry.attributes.position.needsUpdate = true;
 
-      const currentMode = s.pendingMode;
+      const currentMode = s.activeMode;
       const isSkyMode = currentMode === "sky";
 
       // Removed instant visibility toggles, they are now handled by the transition swap
@@ -1650,7 +1824,8 @@ export default function SkyDome({
       // Use activeMode and tie intensity to the dome's fade for synchronized dimming
       const targetMode = s.activeMode;
       const isTargetSkyMode = targetMode === "sky";
-      const fadeOpacity = (s.fadeSphere.material as THREE.Material).opacity;
+      const fadeOpacity = (s.fadeSphere.material as THREE.ShaderMaterial)
+        .uniforms.uOpacity.value;
       const dimFactor = Math.max(0, 1.0 - fadeOpacity); // 0 when fully black, 1 when fully visible
 
       if (isTargetSkyMode) {
@@ -1752,8 +1927,8 @@ export default function SkyDome({
         }
       }
 
-      // Smoothly interpolate the base targets, then apply the strict dimFactor
-      const lerpSpeed = dt * 3.0; // 3 units per second smooth transition
+      // Fast base transition so the targets switch instantly when activeMode flips at 0.5s
+      const lerpSpeed = dt * 20.0; 
 
       if (s.ambient.userData.base === undefined)
         s.ambient.userData.base = s.ambient.intensity;
@@ -1788,7 +1963,11 @@ export default function SkyDome({
       let lensGlow = 0.0;
       if (s.activeMode === "movie") {
         if (s.transitionState === "idle") {
-          const avg = (s.currentVideoColor.r + s.currentVideoColor.g + s.currentVideoColor.b) / 3.0;
+          const avg =
+            (s.currentVideoColor.r +
+              s.currentVideoColor.g +
+              s.currentVideoColor.b) /
+            3.0;
           const baseBrightness = Math.max(avg, 0.3); // Ensure minimum visibility
           // Removed random flicker to keep the light steady
           lensGlow = baseBrightness * 2.0;
@@ -1797,7 +1976,7 @@ export default function SkyDome({
         }
       }
 
-      s.lensMeshes.forEach(lens => {
+      s.lensMeshes.forEach((lens) => {
         const mat = lens.material as THREE.MeshStandardMaterial;
         mat.emissive.copy(s.currentVideoColor);
         mat.emissiveIntensity = lensGlow;
@@ -1821,9 +2000,11 @@ export default function SkyDome({
 
       if (moveForward !== 0 || moveRight !== 0) {
         const speed = 30.0 * dt; // units per second
-        
+
         // Normalize movement vector for diagonal movement
-        const length = Math.sqrt(moveForward * moveForward + moveRight * moveRight);
+        const length = Math.sqrt(
+          moveForward * moveForward + moveRight * moveRight,
+        );
         moveForward /= length;
         moveRight /= length;
 
@@ -1834,7 +2015,7 @@ export default function SkyDome({
 
         camX += (forwardX * moveForward + rightX * moveRight) * speed;
         camZ += (forwardZ * moveForward + rightZ * moveRight) * speed;
-        
+
         const dist = Math.sqrt(camX * camX + camZ * camZ);
         const maxDist = ROOM_RADIUS - 2;
         if (dist > maxDist) {
@@ -1984,6 +2165,10 @@ export default function SkyDome({
     }
     if (s.lobbyMaterial.uniforms.uCoveColor) {
       s.lobbyMaterial.uniforms.uCoveColor.value.copy(color);
+    }
+    const fadeMat = s.fadeSphere.material as THREE.ShaderMaterial;
+    if (fadeMat.uniforms && fadeMat.uniforms.uCoveColor) {
+      fadeMat.uniforms.uCoveColor.value.copy(color);
     }
     const currentMat = s.dome.material as any;
     if (

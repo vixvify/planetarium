@@ -294,7 +294,6 @@ export default function SkyDome({
     gimbalGroup: THREE.Group;
     polarAxisGroup: THREE.Group;
     currentDiurnal: number;
-    isCatchingUpToSky: boolean;
     isSlewing: boolean;
     lensMeshes: THREE.Mesh[];
   } | null>(null);
@@ -1512,7 +1511,6 @@ export default function SkyDome({
       gimbalGroup: gimbal,
       polarAxisGroup: polarAxis,
       currentDiurnal: initialDiurnal,
-      isCatchingUpToSky: false,
       isSlewing: false,
       lensMeshes,
     };
@@ -1623,22 +1621,8 @@ export default function SkyDome({
       }
 
       if (isSky) {
-        if (s.isCatchingUpToSky) {
-          const maxMechSpeed = 1.0; 
-          let step = (targetDiurnal - s.currentDiurnal) * dt * 2.0;
-          if (Math.abs(step) > maxMechSpeed * dt) {
-            step = Math.sign(step) * maxMechSpeed * dt;
-          }
-          s.currentDiurnal += step;
-          
-          if (Math.abs(targetDiurnal - s.currentDiurnal) < 0.01) {
-            s.isCatchingUpToSky = false;
-            s.currentDiurnal = targetDiurnal;
-          }
-        } else {
-          // Snap directly to the exact position to track the sky in real-time
-          s.currentDiurnal = targetDiurnal;
-        }
+        // Snap directly to the exact position to track the sky in real-time
+        s.currentDiurnal = targetDiurnal;
       } else {
         // Apply slow, smooth mechanical speed limit when parking
         const maxMechSpeed = 0.05; // radians per second (very slow and heavy)
@@ -1678,7 +1662,6 @@ export default function SkyDome({
           s.activeMode = s.pendingMode;
           // Apply instant visibilities
           const isSkyModeNow = s.activeMode === "sky";
-          if (isSkyModeNow) s.isCatchingUpToSky = true;
           s.stars.visible = isSkyModeNow;
           s.sunSprite.visible = isSkyModeNow;
           s.moonSprite.visible = isSkyModeNow;

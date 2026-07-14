@@ -294,6 +294,7 @@ export default function SkyDome({
     gimbalGroup: THREE.Group;
     polarAxisGroup: THREE.Group;
     currentDiurnal: number;
+    isCatchingUpToSky: boolean;
     isSlewing: boolean;
     lensMeshes: THREE.Mesh[];
   } | null>(null);
@@ -1459,6 +1460,11 @@ export default function SkyDome({
       willReadFrequently: true,
     })!;
 
+    const initialJd = dateToJD(simulationDate);
+    const initialLocalST = lst(initialJd, longitude);
+    const initialDiurnal =
+      appMode === "sky" ? -(initialLocalST / 24.0) * Math.PI * 2 : 0;
+
     sceneRef.current = {
       renderer,
       scene,
@@ -1505,19 +1511,14 @@ export default function SkyDome({
       lastMouseY,
       gimbalGroup: gimbal,
       polarAxisGroup: polarAxis,
-      currentDiurnal: 0,
+      currentDiurnal: initialDiurnal,
+      isCatchingUpToSky: false,
       isSlewing: false,
       lensMeshes,
     };
 
-    const initialJd = dateToJD(simulationDate);
-    const initialLocalST = lst(initialJd, longitude);
-    const initialDiurnal =
-      appMode === "sky" ? -(initialLocalST / 24.0) * Math.PI * 2 : 0;
-
     gimbal.rotation.x = Math.PI / 2 + initialDiurnal;
     polarAxis.rotation.y = initialDiurnal * 2.0;
-    sceneRef.current.currentDiurnal = initialDiurnal;
 
     const handleResize = () => {
       const w = container.clientWidth;
@@ -1621,13 +1622,32 @@ export default function SkyDome({
         }
       }
 
-      // Always apply slow, smooth mechanical speed limit when tracking or parking
-      const maxMechSpeed = 0.05; // radians per second (very slow and heavy)
-      let step = (targetDiurnal - s.currentDiurnal) * dt * 0.2;
-      if (Math.abs(step) > maxMechSpeed * dt) {
-        step = Math.sign(step) * maxMechSpeed * dt;
+      if (isSky) {
+        if (s.isCatchingUpToSky) {
+          const maxMechSpeed = 1.0; 
+          let step = (targetDiurnal - s.currentDiurnal) * dt * 2.0;
+          if (Math.abs(step) > maxMechSpeed * dt) {
+            step = Math.sign(step) * maxMechSpeed * dt;
+          }
+          s.currentDiurnal += step;
+          
+          if (Math.abs(targetDiurnal - s.currentDiurnal) < 0.01) {
+            s.isCatchingUpToSky = false;
+            s.currentDiurnal = targetDiurnal;
+          }
+        } else {
+          // Snap directly to the exact position to track the sky in real-time
+          s.currentDiurnal = targetDiurnal;
+        }
+      } else {
+        // Apply slow, smooth mechanical speed limit when parking
+        const maxMechSpeed = 0.05; // radians per second (very slow and heavy)
+        let step = (targetDiurnal - s.currentDiurnal) * dt * 0.2;
+        if (Math.abs(step) > maxMechSpeed * dt) {
+          step = Math.sign(step) * maxMechSpeed * dt;
+        }
+        s.currentDiurnal += step;
       }
-      s.currentDiurnal += step;
 
       // Horizontal is Math.PI/2, plus tumbling tilt
       const targetGimbalRot = Math.PI / 2 + s.currentDiurnal;
@@ -1658,6 +1678,7 @@ export default function SkyDome({
           s.activeMode = s.pendingMode;
           // Apply instant visibilities
           const isSkyModeNow = s.activeMode === "sky";
+          if (isSkyModeNow) s.isCatchingUpToSky = true;
           s.stars.visible = isSkyModeNow;
           s.sunSprite.visible = isSkyModeNow;
           s.moonSprite.visible = isSkyModeNow;

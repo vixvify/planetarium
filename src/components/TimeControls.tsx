@@ -15,6 +15,7 @@ const SPEED_OPTIONS = [
   { label: '×1', value: 1 },
   { label: '×10', value: 10 },
   { label: '×60', value: 60 },
+  { label: '×200', value: 200 },
   { label: '×360', value: 360 },
   { label: '×3.6k', value: 3600 },
   { label: '×36k', value: 36000 },

@@ -45,10 +45,11 @@ void main() {
 
   vec3 sky = mix(uHorizonColor, uZenithColor, hSmooth);
 
-  float sunDot = max(dot(dir, uSunDirection), 0.0);
-  float sunGlow = pow(sunDot, 6.0) * 0.5;
-  float sunCore = pow(sunDot, 48.0) * 1.5;
-  sky += uSunGlowColor * (sunGlow + sunCore) * uBrightness;
+  // Sun glow removed based on user request
+  // float sunDot = max(dot(dir, uSunDirection), 0.0);
+  // float sunGlow = pow(sunDot, 6.0) * 0.5;
+  // float sunCore = pow(sunDot, 48.0) * 1.5;
+  // sky += uSunGlowColor * (sunGlow + sunCore) * uBrightness;
 
   float horizonFade = 1.0 - smoothstep(0.0, 0.12, h);
   sky += uHorizonColor * horizonFade * 0.2 * uBrightness;
@@ -338,6 +339,20 @@ export default function SkyDome({
     gradient.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    return tex;
+  }, []);
+
+  const createSolidCircleTexture = useCallback((color: string, size: number = 64) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, (size / 2) - 2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
     const tex = new THREE.CanvasTexture(canvas);
     tex.needsUpdate = true;
     return tex;
@@ -1382,7 +1397,7 @@ export default function SkyDome({
     );
     scene.add(constellationLine);
 
-    const sunTex = createGlowTexture("rgba(255, 230, 120, 1)");
+    const sunTex = createSolidCircleTexture("rgba(255, 250, 240, 1)");
     const sunMat = new THREE.SpriteMaterial({
       map: sunTex,
       transparent: true,
@@ -1390,10 +1405,10 @@ export default function SkyDome({
       depthWrite: false,
     });
     const sunSprite = new THREE.Sprite(sunMat);
-    sunSprite.scale.set(25, 25, 1);
+    sunSprite.scale.set(2, 2, 1);
     scene.add(sunSprite);
 
-    const moonTex = createGlowTexture("rgba(210, 225, 255, 1)");
+    const moonTex = createSolidCircleTexture("rgba(210, 225, 255, 1)");
     const moonMat = new THREE.SpriteMaterial({
       map: moonTex,
       transparent: true,
@@ -1401,7 +1416,7 @@ export default function SkyDome({
       depthWrite: false,
     });
     const moonSprite = new THREE.Sprite(moonMat);
-    moonSprite.scale.set(14, 14, 1);
+    moonSprite.scale.set(2, 2, 1);
     scene.add(moonSprite);
 
     const dirs = [
@@ -1536,7 +1551,7 @@ export default function SkyDome({
     ): [number, number, number] {
       const { altitude, azimuth } = raDecToAltAz(raHours, decDeg, lat, localST);
 
-      const alt = Math.max(0, altitude) * (Math.PI / 180);
+      const alt = altitude * (Math.PI / 180);
       const az = azimuth * (Math.PI / 180);
 
       const x = Math.cos(alt) * Math.cos(az) * radius;
@@ -1681,7 +1696,7 @@ export default function SkyDome({
         const star = STARS[i];
         const altAz = raDecToAltAz(star.ra, star.dec, lat, localST);
 
-        if (altAz.altitude > -2) {
+        if (altAz.altitude > 0) {
           const [x, y, z] = raDecToDome(star.ra, star.dec, lat, localST);
           s.starPositions[i * 3] = x;
           s.starPositions[i * 3 + 1] = y;
@@ -1721,7 +1736,7 @@ export default function SkyDome({
               localST,
             ).altitude;
 
-            if (alt1 > -2 && alt2 > -2) {
+            if (alt1 > 0 && alt2 > 0) {
               const [x1, y1, z1] = raDecToDome(
                 STARS[i1].ra,
                 STARS[i1].dec,
@@ -1760,7 +1775,7 @@ export default function SkyDome({
       const sun = sunPosition(jd);
       const sunAltAz = raDecToAltAz(sun.ra, sun.dec, lat, localST);
 
-      if (sunAltAz.altitude > -5) {
+      if (sunAltAz.altitude > 0) {
         const [sx, sy, sz] = raDecToDome(
           sun.ra,
           sun.dec,
@@ -1768,34 +1783,15 @@ export default function SkyDome({
           localST,
           DOME_RADIUS - 4,
         );
-        s.sunSprite.position.set(sx, Math.max(sy, 2), sz);
+        s.sunSprite.position.set(sx, sy, sz);
         s.sunSprite.visible = isSkyMode;
-        const sunAlpha = Math.max(0, Math.min(1, (sunAltAz.altitude + 5) / 10));
+        const sunAlpha = Math.max(0, Math.min(1, sunAltAz.altitude / 5));
         (s.sunSprite.material as THREE.SpriteMaterial).opacity = sunAlpha;
       } else {
         s.sunSprite.visible = false;
       }
 
-      const moon = moonPosition(jd);
-      const moonAltAz = raDecToAltAz(moon.ra, moon.dec, lat, localST);
-
-      if (moonAltAz.altitude > -3) {
-        const [mx, my, mz] = raDecToDome(
-          moon.ra,
-          moon.dec,
-          lat,
-          localST,
-          DOME_RADIUS - 4,
-        );
-        s.moonSprite.position.set(mx, Math.max(my, 2), mz);
-        s.moonSprite.visible = isSkyMode;
-        const moonBright =
-          0.3 + 0.7 * Math.abs(Math.cos(moon.phase * Math.PI * 2 - Math.PI));
-        (s.moonSprite.material as THREE.SpriteMaterial).opacity =
-          moonBright * Math.max(0, Math.min(1, (moonAltAz.altitude + 3) / 6));
-      } else {
-        s.moonSprite.visible = false;
-      }
+      s.moonSprite.visible = false;
 
       const skyCol = skyColors(sunAltAz.altitude);
       s.domeMaterial.uniforms.uZenithColor.value.set(...skyCol.zenith);
@@ -1804,7 +1800,7 @@ export default function SkyDome({
       s.domeMaterial.uniforms.uBrightness.value = skyCol.brightness;
 
       if (sunAltAz.altitude > -10) {
-        const altRad = Math.max(0, sunAltAz.altitude) * (Math.PI / 180);
+        const altRad = sunAltAz.altitude * (Math.PI / 180);
         const azRad = sunAltAz.azimuth * (Math.PI / 180);
         const sunDir = new THREE.Vector3(
           Math.cos(altRad) * Math.cos(azRad),

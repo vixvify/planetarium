@@ -272,7 +272,7 @@ interface SkyDomeProps {
 const DOME_RADIUS = 80;
 const DOME_HEIGHT = 95;
 const WALL_HEIGHT = 25;
-const ROOM_RADIUS = DOME_RADIUS;
+const ROOM_RADIUS = DOME_RADIUS - 1;
 const FLOOR_Y = -WALL_HEIGHT;
 const SEAT_ROWS = 8;
 const PROJECTOR_HEIGHT = 12;
@@ -1103,27 +1103,16 @@ export default function SkyDome({
       bodyGroup.add(glass);
       lensMeshes.push(glass);
 
-      // Lens Hood (Half-cylinder scoop acting as a visor under the bottom half of the lens)
-      // thetaStart = -Math.PI / 2, thetaLength = Math.PI covers the bottom half
-      const hoodGeo = new THREE.CylinderGeometry(
-        0.85,
-        0.85,
-        1.0,
-        32,
-        1,
-        true,
-        -Math.PI / 2,
-        Math.PI,
-      );
+      // Lens Hood (A clean cylinder ring around the lens)
+      const hoodGeo = new THREE.CylinderGeometry(0.85, 0.85, 0.6, 32);
       const hoodMat = new THREE.MeshStandardMaterial({
         color: 0x050505,
         roughness: 0.9,
-        side: THREE.DoubleSide,
       });
       const hood = new THREE.Mesh(hoodGeo, hoodMat);
       hood.rotation.x = Math.PI / 2;
-      hood.position.z = 3.6; // Extends out past the glass
-      hood.position.y = 0.4; // Centered on the lens
+      hood.position.z = 3.5;
+      hood.position.y = 0.4;
       bodyGroup.add(hood);
 
       aimGroup.add(bodyGroup);
@@ -1503,9 +1492,9 @@ export default function SkyDome({
       const sprite = createTextSprite(dir.label, "#4fc3f7", 40);
       const azRad = (dir.az * Math.PI) / 180;
       sprite.position.set(
-        Math.cos(azRad) * (DOME_RADIUS - 5),
+        Math.cos(azRad) * (DOME_RADIUS - 0.1),
         3,
-        Math.sin(azRad) * (DOME_RADIUS - 5),
+        Math.sin(azRad) * (DOME_RADIUS - 0.1),
       );
       sprite.scale.set(10, 5, 1);
       scene.add(sprite);
@@ -1619,7 +1608,7 @@ export default function SkyDome({
       decDeg: number,
       lat: number,
       localST: number,
-      radius: number = DOME_RADIUS - 2,
+      radius: number = DOME_RADIUS - 0.1,
     ): [number, number, number] {
       const { altitude, azimuth } = raDecToAltAz(raHours, decDeg, lat, localST);
 
@@ -1849,7 +1838,7 @@ export default function SkyDome({
           sunPos.dec,
           lat,
           localST,
-          DOME_RADIUS - 4,
+          DOME_RADIUS - 0.1,
         );
         s.sunSprite.position.set(sx, sy, sz);
         s.sunSprite.lookAt(0, 0, 0);

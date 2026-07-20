@@ -15,7 +15,7 @@ export default function PlanetariumApp() {
   const [simulationDate, setSimulationDate] = useState<Date>(new Date());
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [showConstellations, setShowConstellations] = useState<boolean>(true);
+  const [showConstellations, setShowConstellations] = useState<boolean>(false);
   const [showLabels, setShowLabels] = useState<boolean>(true);
   const [latitude] = useState<number>(DEFAULT_LAT);
   const [longitude] = useState<number>(DEFAULT_LON);

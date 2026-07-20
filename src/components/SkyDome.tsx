@@ -182,7 +182,7 @@ void main() {
   float gridV = fract(vUv.y * 10.0);
   float grid = smoothstep(0.02, 0.0, min(gridU, gridV));
   float colorLum = dot(color, vec3(0.299, 0.587, 0.114));
-  color += vec3(grid * 0.10 * colorLum); // Additive faint white lines, scales with brightness
+  color += vec3(grid * 0.05 * colorLum); // Additive faint white lines, scales with brightness
   
   gl_FragColor = vec4(color, 1.0);
 }
@@ -219,7 +219,7 @@ void main() {
   float gridV = fract(vUv.y * 10.0);
   float grid = smoothstep(0.02, 0.0, min(gridU, gridV));
   float lum = dot(finalColor, vec3(0.299, 0.587, 0.114));
-  finalColor += vec3(grid * 0.10 * lum);
+  finalColor += vec3(grid * 0.05 * lum);
   
   gl_FragColor = vec4(finalColor, 1.0);
 }
@@ -247,7 +247,7 @@ void main() {
   float gridV = fract(vUv.y * 10.0);
   float grid = smoothstep(0.02, 0.0, min(gridU, gridV));
   float lum = dot(finalColor, vec3(0.299, 0.587, 0.114));
-  finalColor += vec3(grid * 0.10 * lum);
+  finalColor += vec3(grid * 0.05 * lum);
   
   gl_FragColor = vec4(finalColor, 1.0);
 }

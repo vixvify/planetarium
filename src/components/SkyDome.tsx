@@ -58,10 +58,12 @@ void main() {
   float coveFade = exp(-h * 4.0); 
   sky += uCoveColor * coveFade * uCoveIntensity;
 
-  float gridU = fract(vUv.x * 120.0);
-  float gridV = fract(vUv.y * 60.0);
+  // Structural dome panels
+  float gridU = fract(vUv.x * 36.0);
+  float gridV = fract(vUv.y * 10.0);
   float grid = smoothstep(0.02, 0.0, min(gridU, gridV));
-  sky = mix(sky, sky * 0.92, grid * 0.06);
+  float skyLum = dot(sky, vec3(0.299, 0.587, 0.114));
+  sky += vec3(grid * 0.05 * skyLum); // Additive faint white lines, scales with brightness
 
   float vignette = smoothstep(0.0, 0.6, h);
   sky *= 0.85 + 0.15 * vignette;
@@ -149,9 +151,11 @@ void main() {
 
 const FISHEYE_VERTEX_SHADER = `
 varying vec3 vWorldDirection;
+varying vec2 vUv;
 void main() {
   vec4 worldPos = modelMatrix * vec4(position, 1.0);
   vWorldDirection = normalize(worldPos.xyz);
+  vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
@@ -160,6 +164,7 @@ const LOBBY_FRAGMENT_SHADER = `
 uniform vec3 uCoveColor;
 uniform float uCoveIntensity;
 varying vec3 vWorldPosition;
+varying vec2 vUv;
 
 void main() {
   vec3 dir = normalize(vWorldPosition);
@@ -172,6 +177,13 @@ void main() {
   float coveFade = exp(-h * 3.5);
   color += uCoveColor * coveFade * (uCoveIntensity * 2.5);
   
+  // Structural dome panels
+  float gridU = fract(vUv.x * 36.0);
+  float gridV = fract(vUv.y * 10.0);
+  float grid = smoothstep(0.02, 0.0, min(gridU, gridV));
+  float colorLum = dot(color, vec3(0.299, 0.587, 0.114));
+  color += vec3(grid * 0.10 * colorLum); // Additive faint white lines, scales with brightness
+  
   gl_FragColor = vec4(color, 1.0);
 }
 `;
@@ -181,6 +193,7 @@ uniform sampler2D tVideo;
 uniform vec3 uCoveColor;
 uniform float uCoveIntensity;
 varying vec3 vWorldDirection;
+varying vec2 vUv;
 
 #define PI 3.14159265359
 
@@ -200,6 +213,41 @@ void main() {
   // Cove Light Effect (adjusted for wider spread and much higher brightness)
   float coveFade = exp(-altitude * 3.5);
   finalColor += uCoveColor * coveFade * (uCoveIntensity * 2.5);
+  
+  // Grid
+  float gridU = fract(vUv.x * 36.0);
+  float gridV = fract(vUv.y * 10.0);
+  float grid = smoothstep(0.02, 0.0, min(gridU, gridV));
+  float lum = dot(finalColor, vec3(0.299, 0.587, 0.114));
+  finalColor += vec3(grid * 0.10 * lum);
+  
+  gl_FragColor = vec4(finalColor, 1.0);
+}
+`;
+
+const EQUIRECTANGULAR_FRAGMENT_SHADER = `
+uniform sampler2D tVideo;
+uniform vec3 uCoveColor;
+uniform float uCoveIntensity;
+varying vec3 vWorldDirection;
+varying vec2 vUv;
+
+void main() {
+  vec2 uv = vec2(vUv.x, vUv.y * 0.5 + 0.5);
+  vec3 finalColor = texture2D(tVideo, uv).rgb;
+  
+  // Cove Light Effect
+  vec3 dir = normalize(vWorldDirection);
+  float altitude = asin(max(0.0, dir.y));
+  float coveFade = exp(-altitude * 3.5);
+  finalColor += uCoveColor * coveFade * (uCoveIntensity * 2.5);
+  
+  // Grid
+  float gridU = fract(vUv.x * 36.0);
+  float gridV = fract(vUv.y * 10.0);
+  float grid = smoothstep(0.02, 0.0, min(gridU, gridV));
+  float lum = dot(finalColor, vec3(0.299, 0.587, 0.114));
+  finalColor += vec3(grid * 0.10 * lum);
   
   gl_FragColor = vec4(finalColor, 1.0);
 }
@@ -259,8 +307,7 @@ export default function SkyDome({
     constellationLine: THREE.LineSegments;
     constellationPositions: Float32Array;
     labelSprites: THREE.Sprite[];
-    sunSprite: THREE.Sprite;
-    moonSprite: THREE.Sprite;
+    sunSprite: THREE.Mesh;
     roomLights: THREE.PointLight[];
     wallLights: THREE.Light[];
     ambient: THREE.AmbientLight;
@@ -344,19 +391,22 @@ export default function SkyDome({
     return tex;
   }, []);
 
-  const createSolidCircleTexture = useCallback((color: string, size: number = 64) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d")!;
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, (size / 2) - 2, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.needsUpdate = true;
-    return tex;
-  }, []);
+  const createSolidCircleTexture = useCallback(
+    (color: string, size: number = 64) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d")!;
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.needsUpdate = true;
+      return tex;
+    },
+    [],
+  );
 
   const createTextSprite = useCallback(
     (text: string, color: string = "#4fc3f7", fontSize: number = 36) => {
@@ -691,30 +741,63 @@ export default function SkyDome({
       joint.rotation.x = Math.PI / 2;
       sideGroup.add(joint);
 
-      // Lamps on top of the stand
+      // Lamps on the stand
       const lampGroup = new THREE.Group();
-      lampGroup.position.set(0, 3.0, 0); // Sit on top of the joint
+      lampGroup.position.set(0, 3.0, 0); // Position above the joint
 
-      const lampBase = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.0, 1.5, 1.0, 16),
+      // Base / Stem connecting to the joint
+      const stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.6, 1.2, 1.5, 16),
         projDetailMat,
       );
-      lampGroup.add(lampBase);
+      stem.position.y = -0.75;
+      lampGroup.add(stem);
 
-      const lampGeo = new THREE.SphereGeometry(1.2, 16, 16);
+      // Shade (Flat dish pointing straight UP)
+      const shadeGroup = new THREE.Group();
+      shadeGroup.position.set(0, 0, 0);
+
+      // Cone pointing UP (open end at +Y)
+      const coneGeo = new THREE.ConeGeometry(2.5, 0.8, 32, 1, true);
+      coneGeo.rotateX(Math.PI);
+
+      const shade = new THREE.Mesh(
+        coneGeo,
+        new THREE.MeshStandardMaterial({
+          color: 0x151515,
+          roughness: 0.7,
+          metalness: 0.3,
+          side: THREE.DoubleSide,
+        }),
+      );
+      shade.position.y = 0.4; // Tip at 0, open end at 0.8
+      shadeGroup.add(shade);
+
+      const shadeCap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.8, 0.4, 0.5, 16),
+        projFrameMat,
+      );
+      shadeCap.position.y = -0.25;
+      shadeGroup.add(shadeCap);
+
+      // Use a cylindrical lamp instead of a dome
+      const lampGeo = new THREE.CylinderGeometry(0.8, 0.8, 1.8, 16); // Slightly shorter cylinder
       const lampMat = new THREE.MeshStandardMaterial({
         color: 0xffeedd,
         emissive: 0xffaa55,
-        emissiveIntensity: 2.0,
+        emissiveIntensity: 0.6, // Dimmer as requested
         roughness: 0.2,
       });
       const lamp = new THREE.Mesh(lampGeo, lampMat);
-      lamp.position.y = 1.0;
-      lampGroup.add(lamp);
+      // Positioned to sit perfectly inside the cone without poking through
+      lamp.position.y = 1.2; // Adjusted for the shorter height (bottom stays at 0.3)
+      shadeGroup.add(lamp);
 
-      const lampLight = new THREE.PointLight(0xffaa55, 1.5, 20);
-      lampLight.position.y = 1.0;
-      lampGroup.add(lampLight);
+      const lampLight = new THREE.PointLight(0xffaa55, 0.4, 30);
+      lampLight.position.y = 2.1;
+      shadeGroup.add(lampLight);
+
+      lampGroup.add(shadeGroup);
 
       sideGroup.add(lampGroup);
       standGroup.add(sideGroup);
@@ -1398,26 +1481,16 @@ export default function SkyDome({
     scene.add(constellationLine);
 
     const sunTex = createSolidCircleTexture("rgba(255, 250, 240, 1)");
-    const sunMat = new THREE.SpriteMaterial({
+    const sunMat = new THREE.MeshBasicMaterial({
       map: sunTex,
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
-    const sunSprite = new THREE.Sprite(sunMat);
+    const sunSprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), sunMat);
     sunSprite.scale.set(2, 2, 1);
     scene.add(sunSprite);
-
-    const moonTex = createSolidCircleTexture("rgba(210, 225, 255, 1)");
-    const moonMat = new THREE.SpriteMaterial({
-      map: moonTex,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const moonSprite = new THREE.Sprite(moonMat);
-    moonSprite.scale.set(2, 2, 1);
-    scene.add(moonSprite);
 
     const dirs = [
       { label: "N", az: 0 },
@@ -1494,7 +1567,6 @@ export default function SkyDome({
       constellationPositions,
       labelSprites,
       sunSprite,
-      moonSprite,
       roomLights,
       wallLights,
       ambient,
@@ -1679,7 +1751,6 @@ export default function SkyDome({
           const isSkyModeNow = s.activeMode === "sky";
           s.stars.visible = isSkyModeNow;
           s.sunSprite.visible = isSkyModeNow;
-          s.moonSprite.visible = isSkyModeNow;
           s.constellationLine.visible =
             showConstellationsRef.current && isSkyModeNow;
         }
@@ -1711,8 +1782,6 @@ export default function SkyDome({
 
       const currentMode = s.activeMode;
       const isSkyMode = currentMode === "sky";
-
-      // Removed instant visibility toggles, they are now handled by the transition swap
 
       if (showConst && isSkyMode) {
         let vi = 0;
@@ -1772,26 +1841,25 @@ export default function SkyDome({
         s.constellationLine.geometry.attributes.position.needsUpdate = true;
       }
 
-      const sun = sunPosition(jd);
-      const sunAltAz = raDecToAltAz(sun.ra, sun.dec, lat, localST);
-
-      if (sunAltAz.altitude > 0) {
+      const sunPos = sunPosition(jd);
+      const sunAltAz = raDecToAltAz(sunPos.ra, sunPos.dec, lat, localST);
+      if (sunAltAz.altitude > 0 && isSkyMode) {
         const [sx, sy, sz] = raDecToDome(
-          sun.ra,
-          sun.dec,
+          sunPos.ra,
+          sunPos.dec,
           lat,
           localST,
           DOME_RADIUS - 4,
         );
         s.sunSprite.position.set(sx, sy, sz);
-        s.sunSprite.visible = isSkyMode;
+        s.sunSprite.lookAt(0, 0, 0);
+        s.sunSprite.rotateY(Math.PI);
+        s.sunSprite.visible = true;
         const sunAlpha = Math.max(0, Math.min(1, sunAltAz.altitude / 5));
-        (s.sunSprite.material as THREE.SpriteMaterial).opacity = sunAlpha;
+        (s.sunSprite.material as THREE.MeshBasicMaterial).opacity = sunAlpha;
       } else {
         s.sunSprite.visible = false;
       }
-
-      s.moonSprite.visible = false;
 
       const skyCol = skyColors(sunAltAz.altitude);
       s.domeMaterial.uniforms.uZenithColor.value.set(...skyCol.zenith);
@@ -1928,7 +1996,7 @@ export default function SkyDome({
       }
 
       // Fast base transition so the targets switch instantly when activeMode flips at 0.5s
-      const lerpSpeed = dt * 20.0; 
+      const lerpSpeed = dt * 20.0;
 
       if (s.ambient.userData.base === undefined)
         s.ambient.userData.base = s.ambient.intensity;
@@ -2090,10 +2158,16 @@ export default function SkyDome({
         mediaTexture.magFilter = THREE.LinearFilter;
 
         if (videoFormat === "equirectangular") {
-          mediaTexture.repeat.set(1, 0.5);
-          mediaTexture.offset.set(0, 0.5);
-          videoMaterial = new THREE.MeshBasicMaterial({
-            map: mediaTexture,
+          mediaTexture.repeat.set(1, 1);
+          mediaTexture.offset.set(0, 0);
+          videoMaterial = new THREE.ShaderMaterial({
+            vertexShader: FISHEYE_VERTEX_SHADER,
+            fragmentShader: EQUIRECTANGULAR_FRAGMENT_SHADER,
+            uniforms: {
+              tVideo: { value: mediaTexture },
+              uCoveColor: { value: new THREE.Color(coveColor) },
+              uCoveIntensity: { value: coveLight ? 1.5 : 0.0 },
+            },
             side: THREE.BackSide,
           });
         } else {
@@ -2137,7 +2211,6 @@ export default function SkyDome({
       const isSkyMode = appMode === "sky";
       s.stars.visible = isSkyMode;
       s.sunSprite.visible = isSkyMode;
-      s.moonSprite.visible = isSkyMode;
       s.constellationLine.visible = showConstellationsRef.current && isSkyMode;
     }
 
